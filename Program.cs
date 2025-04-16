@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using ZOOM_RIPOFF.Components;
 using ZOOM_RIPOFF.Hubs;
+using ZOOM_RIPOFF.Components.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -10,7 +11,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 // Додати стандартну авторизацію та реєстрацію
-builder.Services.AddIdentity<IdentityUser, IdentityRole>(options => options.SignIn.RequireConfirmedAccount = false)
+builder.Services.AddIdentity<AppUser, IdentityRole>(options => options.SignIn.RequireConfirmedAccount = false)
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
 

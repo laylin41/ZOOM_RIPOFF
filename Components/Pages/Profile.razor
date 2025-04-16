@@ -1,5 +1,101 @@
-﻿<h3>Profile</h3>
+﻿@page "/profile"
+@rendermode InteractiveServer
+@inject UserManager<AppUser> UserManager
+@inject AuthenticationStateProvider AuthProvider
+
+<h3>Мій профіль</h3>
+
+@if (!string.IsNullOrEmpty(success))
+{
+    <div class="alert alert-success">@success</div>
+}
+@if (!string.IsNullOrEmpty(error))
+{
+    <div class="alert alert-danger">@error</div>
+}
+
+@if (!string.IsNullOrEmpty(profileModel.AvatarUrl))
+{
+    <img src="@profileModel.AvatarUrl" alt="Avatar" style="width: 100px; height: 100px; border-radius: 50%;" />
+}
+
+<form method="post" enctype="multipart/form-data" action="/auth/upload-avatar">
+    <input type="file" name="avatar" class="form-control mb-2" />
+    <button class="btn btn-outline-secondary">Завантажити аватарку</button>
+</form>
+
+<EditForm Model="profileModel">
+    <form method="post" action="/auth/update-profile">
+        <input type="hidden" name="email" value="@profileModel.Email" />
+        <div class="mb-3">
+            <label>Email</label>
+            <InputText class="form-control" @bind-Value="profileModel.Email" name="email" />
+        </div>
+        <div class="mb-3">
+            <label>Відображуване ім’я</label>
+            <InputText class="form-control" @bind-Value="profileModel.DisplayName" name="displayName" />
+        </div>
+        <button class="btn btn-primary" type="submit">Зберегти</button>
+    </form>
+</EditForm>
+
+<hr />
+
+<h4>Особистий ID для зустрічей</h4>
+
+@if (!string.IsNullOrEmpty(profileModel.MeetingId))
+{
+    <p><b>ID:</b> @profileModel.MeetingId</p>
+}
+<form method="post" action="/auth/generate-meeting-id">
+    <button class="btn btn-outline-info">Згенерувати новий</button>
+</form>
+
+<hr />
+
+<h4>Змінити пароль</h4>
+
+<form method="post" action="/auth/change-password">
+    <div class="mb-3">
+        <label>Старий пароль</label>
+        <input type="password" name="oldPassword" class="form-control" />
+    </div>
+    <div class="mb-3">
+        <label>Новий пароль</label>
+        <input type="password" name="newPassword" class="form-control" />
+    </div>
+    <button class="btn btn-warning" type="submit">Змінити пароль</button>
+</form>
 
 @code {
+    private ProfileModel profileModel = new();
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public string? error { get; set; }
 
+    [Parameter]
+    [SupplyParameterFromQuery]
+    public string? success { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user is AppUser appUser)
+        {
+            profileModel.Email = appUser.Email;
+            profileModel.DisplayName = appUser.DisplayName;
+            profileModel.AvatarUrl = appUser.AvatarUrl;
+            profileModel.MeetingId = appUser.PersonalMeetingId;
+        }
+    }
+
+    public class ProfileModel
+    {
+        public string? Email { get; set; }
+        public string? DisplayName { get; set; }
+        public string? AvatarUrl { get; set; }
+        public string? MeetingId { get; set; }
+    }
 }
