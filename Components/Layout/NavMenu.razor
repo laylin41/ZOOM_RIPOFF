@@ -15,53 +15,75 @@
             </NavLink>
         </div>
 
-        <div class="nav-item px-3">
+        <div class="nav-item px-3"> 
             <NavLink class="nav-link" href="weather">
                 <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Weather
             </NavLink>
         </div> -->
+        <AuthorizeView>
+            <Authorized>
 
-        <!-- TODO: Bootstrap icons add after finished -->
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
-            </NavLink>
-        </div>
+                <!-- TODO: Bootstrap icons add after finished -->
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                        <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
+                    </NavLink>
+                </div>>
 
-        <!-- TODO: Bootstrap icons add after finished -->
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="profile">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> My Profile
-            </NavLink>
-        </div>
+                <!-- TODO: Bootstrap icons add after finished -->
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="profile">
+                        <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> My Profile
+                    </NavLink>
+                </div>
 
-        <!-- TODO: Bootstrap icons add after finished -->
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="recordings">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> My Recordings
-            </NavLink>
-        </div>
+                <!-- TODO: Bootstrap icons add after finished -->
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="recordings">
+                        <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> My Recordings
+                    </NavLink>
+                </div>
 
-        <!-- TODO: Bootstrap icons add after finished -->
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="newmeeting">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> New Meeting
-            </NavLink>
-        </div>
+                <!-- TODO: Bootstrap icons add after finished -->
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="newmeeting">
+                        <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> New Meeting
+                    </NavLink>
+                </div>
 
-        <!-- TODO: Bootstrap icons add after finished -->
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="joinmeeting">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Join Meeting
-            </NavLink>
-        </div>
+                <!-- TODO: Bootstrap icons add after finished -->
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="joinmeeting">
+                        <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Join Meeting
+                    </NavLink>
+                </div>
 
-        <!-- TODO: Bootstrap icons add after finished -->
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="schedulemeeting">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Schedule Meeting
-            </NavLink>
-        </div>
+                <!-- TODO: Bootstrap icons add after finished -->
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="schedulemeeting">
+                        <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Schedule Meeting
+                    </NavLink>
+                </div>
+
+            </Authorized>
+            <NotAuthorized>
+
+                <!-- TODO: Bootstrap icons add after finished -->
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                        <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
+                    </NavLink>
+                </div>
+
+                <!-- TODO: Bootstrap icons add after finished -->
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="login">
+                        <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Login
+                    </NavLink>
+                </div>
+
+            </NotAuthorized>
+        </AuthorizeView>
     </nav>
 </div>
 

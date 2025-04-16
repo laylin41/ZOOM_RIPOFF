@@ -1,20 +1,42 @@
+using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using ZOOM_RIPOFF.Components;
 using ZOOM_RIPOFF.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+
+// Додати стандартну авторизацію та реєстрацію
+builder.Services.AddIdentity<IdentityUser, IdentityRole>(options => options.SignIn.RequireConfirmedAccount = false)
+    .AddEntityFrameworkStores<ApplicationDbContext>()
+    .AddDefaultTokenProviders();
+
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+builder.Services.AddAuthorizationCore(); // важливо
+builder.Services.AddCascadingAuthenticationState();
 
 builder.Services.AddMudServices();
 
 builder.Services.AddSignalR();
 
+builder.Services.AddAuthentication()
+    .AddCookie(); 
+
+builder.Services.AddLogging();
+
+builder.Services.AddControllers();
+
+builder.Services.AddHttpClient();
+
+
 var app = builder.Build();
 
-app.MapHub<MeetingHub>("/meetinghub"); // URL для підключення
+app.MapHub<MeetingHub>("/meetinghub");
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
@@ -28,6 +50,13 @@ app.UseHttpsRedirection();
 
 app.UseStaticFiles();
 app.UseAntiforgery();
+
+
+app.MapControllers();
+
+// Для використання авторизації
+app.UseAuthentication();
+app.UseAuthorization();
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

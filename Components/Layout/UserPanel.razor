@@ -1,0 +1,26 @@
+﻿@rendermode InteractiveServer
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthStateProvider
+
+@if (isLoggedIn)
+{
+    <form method="post" action="/auth/logout">
+        <button type="submit" class="btn btn-primary">Logout</button>
+    </form>
+}
+else
+{
+    <a href="/login" class="btn btn-primary">Login</a>
+    <a href="/register" class="btn btn-primary">Register</a>
+}
+
+@code {
+    private bool isLoggedIn;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthStateProvider.GetAuthenticationStateAsync();
+        isLoggedIn = authState.User.Identity?.IsAuthenticated == true;
+    }
+}
