@@ -1,6 +1,6 @@
 ﻿using Microsoft.AspNetCore.Identity;
 
-namespace ZOOM_RIPOFF.Components.Data
+namespace ZOOM_RIPOFF.Data.Models
 {
     public class AppUser : IdentityUser
     {

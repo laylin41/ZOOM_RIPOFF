@@ -2,8 +2,10 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using MudBlazor.Services;
 using ZOOM_RIPOFF.Components;
+using ZOOM_RIPOFF.Data.Models;
 using ZOOM_RIPOFF.Hubs;
-using ZOOM_RIPOFF.Components.Data;
+using ZOOM_RIPOFF.Services.Interfaces;
+using ZOOM_RIPOFF.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,12 +20,16 @@ builder.Services.AddIdentity<AppUser, IdentityRole>(options => options.SignIn.Re
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
-builder.Services.AddAuthorizationCore(); // важливо
+builder.Services.AddAuthorizationCore();
 builder.Services.AddCascadingAuthenticationState();
 
 builder.Services.AddMudServices();
 
-builder.Services.AddSignalR();
+builder.Services.AddSignalR(o =>
+{
+    o.EnableDetailedErrors = true;
+    o.MaximumReceiveMessageSize = 10000000;
+});
 
 builder.Services.AddAuthentication()
     .AddCookie(); 
@@ -34,10 +40,22 @@ builder.Services.AddControllers();
 
 builder.Services.AddHttpClient();
 
+builder.Services.ConfigureApplicationCookie(options =>
+{
+    options.LoginPath = "/login";
+});
+
+builder.Services.AddScoped<IMeetingService, MeetingService>();
+
+
 
 var app = builder.Build();
 
-app.MapHub<MeetingHub>("/meetinghub");
+app.MapHub<MeetingHub>("/meetinghub", options =>
+{
+    options.AllowStatefulReconnects = true;
+});
+app.MapHub<ChatHub>("/chathub");
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())

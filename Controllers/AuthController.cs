@@ -2,9 +2,9 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using ZOOM_RIPOFF.Components.Data;
+using ZOOM_RIPOFF.Data.Models;
 
-namespace ZOOM_RIPOFF.Components.Pages
+namespace ZOOM_RIPOFF.Controllers
 {
     [Route("auth")]
     public class AuthController : Controller

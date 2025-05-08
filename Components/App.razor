@@ -19,6 +19,20 @@
 
     <Routes />
     <script src="_framework/blazor.web.js"></script>
+    <script>
+        window.registerBeforeUnload = function (dotnetHelper) {
+            window.leaveHandler = function () {
+                dotnetHelper.invokeMethodAsync('LeaveMeetingFromJs');
+            };
+
+            window.addEventListener('beforeunload', window.leaveHandler);
+        };
+
+        window.unregisterBeforeUnload = function () {
+            window.removeEventListener('beforeunload', window.leaveHandler);
+        };
+    </script>
+
 </body>
 
 </html>

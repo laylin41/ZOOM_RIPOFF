@@ -1,0 +1,103 @@
+﻿@page "/your-meetings"
+@rendermode InteractiveServer
+@inject UserManager<AppUser> UserManager
+@inject AuthenticationStateProvider AuthProvider
+@inject IMeetingService MeetingService
+@inject NavigationManager Nav
+@attribute [Authorize]
+
+<h3>Мої конференції</h3>
+
+@if (!hasMeetings)
+{
+    <div class="alert alert-danger">У вас немає конференій :(</div>
+}
+else
+{
+    <div class="alert alert-success">У вас є конференції :)</div>
+
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>Назва</th>
+                <th>ID Концеренції</th>
+                <th>Створена</th>
+                <th>Запланована</th>
+                <th>Статус</th>
+                <th>Дія</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var meeting in meetings)
+            {
+                <tr>
+                    <td>@meeting.MeetingName</td>
+                    <td>@meeting.MeetingId</td>
+                    <td>@meeting.CreatedAt.ToLocalTime().ToString("g")</td>
+                    <td>@(meeting.ScheduledToStartAt?.ToLocalTime().ToString("g") ?? "Не заплановано")</td>
+                    <td>
+                        @if (meeting.IsActive)
+                        {
+                            <span class="text-success">Активна</span>
+                        }
+                        else
+                        {
+                            <span class="text-secondary">Неактивна</span>
+                        }
+                    </td>
+                    <td>
+                        <button class="btn btn-sm @(meeting.IsActive ? "btn-danger" : "btn-success")"
+                                @onclick="() => ToggleStatus(meeting)">
+                            @(meeting.IsActive ? "Деактивувати" : "Активувати")
+                        </button>
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+
+@code {
+    private bool hasMeetings = false;
+    private List<Meeting> meetings = new List<Meeting>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var authState = await AuthProvider.GetAuthenticationStateAsync();
+        var user = await UserManager.GetUserAsync(authState.User);
+
+        if (user != null)
+        {
+            try
+            {
+                meetings = await MeetingService.GetMeetingsByUserId(user.Id);
+                hasMeetings = meetings.Any();
+
+                SortMeetings();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"your-meetings, user:{user.UserName}, error: {ex.Message}");
+            }
+        }
+    }
+
+    private void SortMeetings()
+    {
+        meetings = meetings
+            .OrderByDescending(m => m.IsActive)
+            .ThenByDescending(m =>
+                !m.IsActive && m.ScheduledToStartAt.HasValue && m.ScheduledToStartAt > DateTime.UtcNow ? 1 : 0)
+            .ThenByDescending(m => m.ScheduledToStartAt)
+            .ToList();
+    }
+
+    private async Task ToggleStatus(Meeting meeting)
+    {
+        meeting.IsActive = !meeting.IsActive;
+        await MeetingService.UpdateMeetingStatus(meeting.Id, meeting.IsActive);
+
+        SortMeetings();
+        StateHasChanged();
+    }
+}

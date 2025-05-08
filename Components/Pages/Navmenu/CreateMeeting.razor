@@ -1,0 +1,135 @@
+﻿@page "/create-meeting"
+@inject NavigationManager Navigation
+@inject IMeetingService MeetingService
+@inject SignInManager<AppUser> SignInManager
+@attribute [Authorize]
+
+@rendermode InteractiveServer
+
+<PageTitle>Створити конференцію</PageTitle>
+
+<div class="max-w-lg mx-auto mt-10 p-6 bg-white shadow-xl rounded-xl space-y-6 border border-gray-300">
+    <h2 class="text-3xl font-semibold text-center text-gray-800">Створити нову конференцію</h2>
+
+    <div class="space-y-4">
+        <!-- ID конференції -->
+        <div>
+            <label class="font-medium text-gray-700">ID конференції:</label>
+            <div class="relative">
+                <input class="border border-gray-300 px-4 py-2 rounded-lg w-full focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                       value="@MeetingId" @oninput="CheckIdAvailability" />
+                @if (IdAlreadyTaken)
+                {
+                    <span class="absolute text-red-600 text-sm mt-1">Цей ID вже зайнятий</span>
+                }
+            </div>
+        </div>
+
+        <!-- Назва конференції -->
+        <div>
+            <label class="font-medium text-gray-700">Назва конференції:</label>
+            <input class="border border-gray-300 px-4 py-2 rounded-lg w-full focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                   @bind="MeetingName"  />
+        </div>
+
+        <!-- Запланована конференція? -->
+        <div class="flex items-center">
+            <label class="font-medium text-gray-700">Запланована конференція?</label>
+            <input type="checkbox" class="ml-3 rounded" @bind="IsScheduled" />
+        </div>
+
+        @if (IsScheduled)
+        {
+            <div class="mt-4">
+                <label class="font-medium text-gray-700">Оберіть дату та час:</label>
+                <input type="datetime-local"
+                       class="border border-gray-300 px-4 py-2 rounded-lg w-full focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                       @onchange="OnDateChanged"
+                       min="@MinDateTime" />
+
+                @if (IsDateInvalid)
+                {
+                    <div class="text-red-600 mt-1 text-sm">Дата не може бути в минулому.</div>
+                }
+            </div>
+        }
+    </div>
+
+    <!-- Кнопка для генерації нового ID -->
+    <button class="bg-blue-600 text-black px-6 py-2 rounded-lg w-full hover:bg-blue-700 transition focus:outline-none focus:ring-2 focus:ring-blue-400"
+            @onclick="GenerateMeetingId">
+        Згенерувати новий ID
+    </button>
+
+    <!-- Кнопка для створення конференції -->
+    <button class="bg-green-600 text-black px-6 py-2 rounded-lg w-full hover:bg-green-700 transition focus:outline-none focus:ring-2 focus:ring-green-400"
+            @onclick="CreateTheMeeting"
+            disabled="@(!CanCreate && !IdAlreadyTaken)">
+        Створити конференцію
+    </button>
+</div>
+
+
+@code {
+    private string MeetingId = string.Empty;
+    private string MeetingName = "/test: GAY BAR";
+    private bool CanCreate => !string.IsNullOrWhiteSpace(MeetingId);
+    private bool IdAlreadyTaken = false;
+    private bool IsScheduled = false;
+    private DateTime? ScheduledDate { get; set; }
+    private string MinDateTime => DateTime.Now.ToString("yyyy-MM-ddTHH:mm");
+    private bool IsDateInvalid { get; set; } = false;
+
+    private async Task GenerateMeetingId()
+    {
+        MeetingId = await MeetingService.GenerateUniqueMeetingIdAsync();
+    }
+
+    private async Task CheckIdAvailability(ChangeEventArgs e)
+    {
+        var inputValue = e.Value?.ToString()?.Trim();
+        MeetingId = inputValue ?? string.Empty;
+
+        if (!string.IsNullOrWhiteSpace(MeetingId))
+        {
+            IdAlreadyTaken = await MeetingService.CheckMeetingIdExists(MeetingId);
+        }
+        else
+        {
+            IdAlreadyTaken = false;
+        }
+    }
+
+    private void OnDateChanged(ChangeEventArgs e)
+    {
+        if (DateTime.TryParse(e.Value?.ToString(), out var selected))
+        {
+            ScheduledDate = selected;
+            IsDateInvalid = selected < DateTime.Now;
+        }
+        else
+        {
+            IsDateInvalid = false;
+        }
+    }
+
+
+    private async Task CreateTheMeeting()
+    {
+        var user = await SignInManager.UserManager.GetUserAsync(SignInManager.Context.User);
+        if (user == null)
+            return;
+
+        var meeting = new Meeting()
+        {
+            MeetingId = MeetingId,
+            MeetingName = MeetingName,
+            IsActive = IsScheduled ? false : true,
+            OwnerId = user.Id,
+            ScheduledToStartAt = IsScheduled ? ScheduledDate : null,
+            CreatedAt = DateTime.UtcNow
+        };
+        await MeetingService.CreateMeetingAsync(meeting);
+        Navigation.NavigateTo($"/meeting/{meeting.MeetingId}");
+    }
+}

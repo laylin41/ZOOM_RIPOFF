@@ -1,0 +1,473 @@
+﻿@page "/meeting/{RoomId}"
+@inject UserManager<AppUser> UserManager
+@inject AuthenticationStateProvider AuthProvider
+@inject NavigationManager Navigation
+@inject IMeetingService MeetingService
+@inject IJSRuntime JS
+
+@rendermode InteractiveServer
+
+@if (meeting != null)
+{
+    @if (!meeting.IsActive)
+    {
+        <h2 class="text-danger">Meeting Room: @meeting.MeetingName (ID:@RoomId (Inactive))</h2>
+        @if (meeting.ScheduledToStartAt != null)
+        {
+            <h2 class="text-success">Meeting is scheduled to start at @meeting.ScheduledToStartAt</h2>
+        }
+    }
+    else
+    {
+        <h3>Meeting Room: @meeting.MeetingName (ID:@RoomId)</h3>
+
+        <div class="participants">
+            @foreach (var user in Users)
+            {
+                <div class="user-tile">
+                    <img src="@user.AvatarUrl" class="avatar" style="width: 200px; height: 200px; object-fit: cover;" />
+                    <div>@user.UserName</div>
+                    <div>
+                        <span>@(user.IsMicrophoneEnabled ? "🎤" : "🔇")</span>
+                        <span>@(user.IsVideoEnabled ? "📹" : "📷❌")</span>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="controls">
+            <button @onclick="ToggleMic">@(MicEnabled ? "Mute Mic" : "Unmute Mic")</button>
+            <button @onclick="ToggleVideo">@(VideoEnabled ? "Disable Video" : "Enable Video")</button>
+            <button @onclick="ExitMeeting">Exit Meeting</button>
+        </div>
+
+
+        <hr />
+        <h4>Chat</h4>
+
+        <div>
+            <label>
+                <input type="checkbox" @bind="IsPrivate" />
+                Private Message
+            </label>
+
+            @if (IsPrivate)
+            {
+                <select @bind="SelectedPrivateUserId">
+                    <option disabled selected value="">-- Select User --</option>
+                    @foreach (var user in Users.Where(u => u.UserId != UserId))
+                    {
+                        <option value="@user.UserId">@user.UserName</option>
+                    }
+                    @foreach (var user in DisconnectedButWithChatUsers.Where(u => u.UserId != UserId))
+                    {
+                        <option value="@user.UserId">@user.UserName (Offline)</option>
+                    })
+                </select>
+            }
+        </div>
+
+        <div class="chat-box" style="max-height: 300px; overflow-y: auto; border: 1px solid gray; padding: 8px;">
+            @if (!IsPrivate)
+            {
+                @foreach (var msg in ChatHistory)
+                {
+                    <div>
+                        <b>@msg.SenderName:</b>
+                        @if (msg.IsFile)
+                        {
+                            <a href="data:application/octet-stream;base64,@msg.FileContentBase64" download="@msg.FileName">
+                                📎 @msg.FileName
+                            </a>
+                        }
+                        else
+                        {
+                            @msg.Content
+                        }
+                    </div>
+                }
+            }
+            else if (!string.IsNullOrWhiteSpace(SelectedPrivateUserId) && PrivateChatHistories.TryGetValue(SelectedPrivateUserId, out var privateMessages))
+            {
+                @foreach (var msg in privateMessages)
+                {
+                    <div><b>@msg.SenderName:</b> @msg.Content</div>
+                }
+            }
+            else
+            {
+                <div><i>No private messages yet.</i></div>
+            }
+        </div>
+
+
+        <div style="margin-top: 10px;">
+            <input type="text" @bind="ChatMessage" @onkeypress="SendOnEnter" placeholder="Type your message..." style="width: 80%;" />
+            <button @onclick="SendMessage">Send</button>
+            <InputFile OnChange="HandleFileSelected"> </InputFile>
+            @if (SelectedFile != null)
+            {
+                <div>
+                    <p>File: @SelectedFile.Name (@(SelectedFile.Size / 1024) KB) </p>
+                    @if (SelectedFile.Size > 10000000) // 10MB limit
+                    {
+                        <p style="color: red;">File size exceeds 10MB limit.</p>
+                    }
+                    @if (CanSendFile)
+                    {
+                        <button @onclick="UploadFile">Send File</button>
+                    }
+
+                </div>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter]
+    public string RoomId { get; set; } = default!;
+
+    private Meeting meeting = new();
+
+    private HubConnection? _hubConnection;
+    private List<UserConnectionInfo> Users = new();
+    private List<UserConnectionInfo> DisconnectedButWithChatUsers = new();
+
+    private string UserId = "error";
+    private string UserName = "error";
+    private string AvatarUrl = "/avatars/default.png";
+    private DotNetObjectReference<MeetingRoom>? dotNetRef;
+    private bool MicEnabled = false;
+    private bool VideoEnabled = false;
+
+    private string ChatMessage = "";
+    private string SelectedPrivateUserId = "";
+    private bool IsPrivate = false;
+    private List<ChatMessage> ChatHistory = new();
+    private Dictionary<string, List<ChatMessage>> PrivateChatHistories = new();
+
+    private IBrowserFile? SelectedFile;
+    private bool CanSendFile = true;
+
+    private async Task UploadFile()
+    {
+        if (SelectedFile == null || _hubConnection == null || _hubConnection.State != HubConnectionState.Connected)
+            return;
+
+        if (SelectedFile.Size > 10000000) // 10MB limit
+        {
+            return;
+        }
+
+        using var stream = SelectedFile.OpenReadStream(10000000); // Max 10MB
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+        var fileBytes = ms.ToArray();
+
+        var fileMessage = new ChatMessage
+        {
+            SenderId = UserId,
+            SenderName = UserName,
+            Content = $"Sent a file: {SelectedFile.Name}",
+            FileName = SelectedFile.Name,
+            Timestamp = DateTime.Now,
+            FileContentBase64 = Convert.ToBase64String(fileBytes),
+            ToUserId = IsPrivate ? SelectedPrivateUserId : null,
+            IsFile = true,
+        };
+
+        await _hubConnection.InvokeAsync("SendFileMessage", RoomId, fileMessage);
+
+        SelectedFile = null;
+    }
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        SelectedFile = e.File;
+
+        if (SelectedFile.Size > 10000000) // 10MB limit
+        {
+            CanSendFile = false;
+            return;
+        }
+        else
+        {
+            CanSendFile = true;
+        }
+    }
+
+    [JSInvokable]
+    public async Task LeaveMeetingFromJs()
+    {
+        //Console.WriteLine("LeaveMeetingFromJs Called");
+        await ExitMeeting();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        meeting = await MeetingService.GetMeetingByIdAsync(RoomId);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        Console.WriteLine($"OnAfterRenderAsync called at {DateTime.Now}, FirstRender: {firstRender}");
+
+        if (firstRender)
+        {
+            dotNetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("registerBeforeUnload", dotNetRef);
+
+            try
+            {
+                var authState = await AuthProvider.GetAuthenticationStateAsync();
+                var user = await UserManager.GetUserAsync(authState.User);
+
+                if (user != null)
+                {
+                    UserId = user.Id;
+                    UserName = user.DisplayName ?? "No Name";
+                    AvatarUrl = user.AvatarUrl ?? "/avatars/default.png";
+                }
+                else
+                {
+                    UserName = "Guest";
+                    AvatarUrl = "/avatars/default.png";
+                    firstRender = true;
+                    Navigation.NavigateTo("/login");
+                }
+
+                await InvokeAsync(StateHasChanged);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading user data: {ex.Message}");
+            }
+
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl(Navigation.ToAbsoluteUri("/meetinghub"))
+                .WithAutomaticReconnect()
+                .Build();
+
+            Console.WriteLine($"Registering handlers for {UserName}");
+            _hubConnection.On<UserConnectionInfo>("UserJoined", async (user) =>
+            {
+                // Remove stale entries with same UserId
+                //Users.RemoveAll(u => u.UserId == user.UserId);
+                //DisconnectedButWithChatUsers.RemoveAll(u => u.UserId == user.UserId);
+
+                Console.WriteLine("UserJoined triggered"); //log
+                Console.WriteLine($"UserJoined: {user.UserName}, ConnectionId: {user.ConnectionId}"); //log
+                if (!Users.Any(u => u.UserId == user.UserId))
+                {
+                    Console.WriteLine($"Adding user: {user.UserName}"); //log
+                    Users.Add(user);
+                    await InvokeAsync(StateHasChanged);
+                }
+
+                if (DisconnectedButWithChatUsers.Any(u => u.UserId == user.UserId))
+                {
+                    Console.WriteLine($"Removing user from dbwchUsers: {user.UserName}"); //log
+                    DisconnectedButWithChatUsers.RemoveAll(u => u.UserId == user.UserId);
+                    await InvokeAsync(StateHasChanged);
+                }
+            });
+
+            _hubConnection.On<List<UserConnectionInfo>>("CurrentUsers", async (users) =>
+            {
+                //Console.WriteLine("CurrentUsers triggered"); //log
+
+                foreach (var user in users)
+                {
+                    //Console.WriteLine($"  - {user.UserName}, ConnectionId: {user.ConnectionId}"); //log
+                    if (!Users.Any(u => u.UserId == user.UserId))
+                    {
+                        //Console.WriteLine($"Adding user from CurrentUsers: {user.UserName}"); //log
+                        Users.Add(user);
+                    }
+                }
+                await InvokeAsync(StateHasChanged);
+            });
+
+            _hubConnection.On<string, string, bool>("UserStatusChanged", async (connId, type, isEnabled) =>
+            {
+                var user = Users.FirstOrDefault(u => u.ConnectionId == connId);
+                if (user != null)
+                {
+                    if (type == "video") user.IsVideoEnabled = isEnabled;
+                    if (type == "microphone") user.IsMicrophoneEnabled = isEnabled;
+
+                    if (user.UserId == UserId)
+                    {
+                        if (type == "video")
+                            VideoEnabled = isEnabled;
+                        if (type == "microphone")
+                            MicEnabled = isEnabled;
+                    }
+
+                    Console.WriteLine($"UserStatusChanged: ConnectionId={connId}, Type={type}, IsEnabled={isEnabled}"); // log
+
+                    await InvokeAsync(StateHasChanged);
+                }
+            });
+
+            _hubConnection.On<string, string>("UserLeft", async (connId, userName) =>
+            {
+                //Console.WriteLine("UserLeft triggered"); // log
+                //Console.WriteLine($"UserLeft: {userName}, ConnectionId: {connId}"); //log
+                var user = Users.FirstOrDefault(u => u.ConnectionId == connId);
+                if (user != null)
+                {
+                    //Users.Remove(user);
+                    Users.RemoveAll(u => u.UserId == user.UserId);
+                    
+                    if (PrivateChatHistories.ContainsKey(user.UserId) && !DisconnectedButWithChatUsers.Any(u => u.UserId == user.UserId))
+                    {
+                        DisconnectedButWithChatUsers.Add(user);
+                    }
+                    await InvokeAsync(StateHasChanged);
+                }
+            });
+
+            _hubConnection.On<ChatMessage>("ReceiveChatMessage", async (message) =>
+            {
+                ChatHistory.Add(message);
+                await InvokeAsync(StateHasChanged);
+            });
+
+            _hubConnection.On<List<ChatMessage>>("SendChatHistory", async (history) =>
+            {
+                ChatHistory = history;
+                await InvokeAsync(StateHasChanged);
+            });
+
+            _hubConnection.On<string, ChatMessage>("ReceivePrivateMessage", async (fromUserId, message) =>
+            {
+                if (!PrivateChatHistories.ContainsKey(fromUserId))
+                {
+                    PrivateChatHistories[fromUserId] = new List<ChatMessage>();
+                }
+
+                PrivateChatHistories[fromUserId].Add(message);
+                await InvokeAsync(StateHasChanged);
+            });
+
+            _hubConnection.On<ChatMessage>("ReceiveFileMessage", async (fileMsg) =>
+            {
+                if (fileMsg.ToUserId != null && !string.IsNullOrEmpty(fileMsg.ToUserId))
+                {
+                    if (!PrivateChatHistories.ContainsKey(fileMsg.SenderId))
+                        PrivateChatHistories[fileMsg.SenderId] = new List<ChatMessage>();
+                    PrivateChatHistories[fileMsg.SenderId].Add(fileMsg);
+                }
+                else
+                {
+                    ChatHistory.Add(fileMsg);
+                }
+
+                await InvokeAsync(StateHasChanged);
+            });
+
+
+            await _hubConnection.StartAsync();
+
+            if (_hubConnection.State == HubConnectionState.Connected)
+            {
+                Console.WriteLine("Calling JoinMeeting...");
+                await _hubConnection.InvokeAsync("JoinMeeting", RoomId, UserId, UserName, AvatarUrl);
+            }
+            else
+            {
+                Console.WriteLine($"Connection not ready. Current state: {_hubConnection.State}");
+            }
+        }
+    }
+
+    private async Task ToggleMic()
+    {
+        MicEnabled = !MicEnabled;
+        await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "microphone", MicEnabled, UserId)!;
+    }
+
+    private async Task ToggleVideo()
+    {
+        VideoEnabled = !VideoEnabled;
+        await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "video", VideoEnabled, UserId)!;
+    }
+
+    private async Task ExitMeeting()
+    {
+        try
+        {
+            if (_hubConnection != null && _hubConnection.State == HubConnectionState.Connected && UserId != "error")
+            {
+                await _hubConnection.InvokeAsync("LeaveMeeting", RoomId, UserId, UserName);
+                await _hubConnection.StopAsync();
+                await _hubConnection.DisposeAsync();
+                _hubConnection = null;
+            }
+            Users.Clear();
+            Navigation.NavigateTo("/");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error exiting meeting: {ex.Message}");
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnBeforeUnload()
+    {
+        //Console.WriteLine("OnBeforeUnload invoked");
+        // Call ExitMeeting only if the hub connection is active
+        if (_hubConnection != null && _hubConnection.State == HubConnectionState.Connected && UserId != "error")
+        {
+            await ExitMeeting();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await JS.InvokeVoidAsync("unregisterBeforeUnload");
+        dotNetRef?.Dispose();
+
+        if (_hubConnection != null)
+        {
+            try
+            {
+                await _hubConnection.StopAsync();
+                await _hubConnection.DisposeAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error disposing SignalR connection: {ex.Message}");
+            }
+            _hubConnection = null;
+        }
+    }
+
+    private async Task SendMessage()
+    {
+        if (string.IsNullOrWhiteSpace(ChatMessage)) return;
+
+        if (!IsPrivate)
+        {
+            await _hubConnection.InvokeAsync("SendChatMessage", RoomId, UserId, UserName, ChatMessage);
+        }
+        else if (!string.IsNullOrWhiteSpace(SelectedPrivateUserId))
+        {
+            await _hubConnection.InvokeAsync("SendPrivateMessage", RoomId, UserId, SelectedPrivateUserId, ChatMessage);
+        }
+
+        ChatMessage = "";
+    }
+
+    private async Task SendOnEnter(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendMessage();
+        }
+    }
+}
