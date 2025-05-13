@@ -6,56 +6,107 @@
 @inject NavigationManager Nav
 @attribute [Authorize]
 
-<h3>Мої конференції</h3>
+<div class="container mt-2">
+    <h2 class="mb-4 text-center">Мої конференції</h2>
 
-@if (!hasMeetings)
-{
-    <div class="alert alert-danger">У вас немає конференій :(</div>
-}
-else
-{
-    <div class="alert alert-success">У вас є конференції :)</div>
+    @if (!hasMeetings)
+    {
+        <div class="alert alert-warning text-center shadow-sm" role="alert">
+            <i class="bi bi-exclamation-circle me-2"></i>У вас немає конференцій :(
+        </div>
+    }
+    else
+    {
+        <div class="card shadow-sm border-0">
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover table-borderless align-middle">
+                        <thead class="bg-primary text-white">
+                            <tr>
+                                <th class="ps-4">Назва</th>
+                                <th>ID Конференції</th>
+                                <th>Створена</th>
+                                <th>Запланована</th>
+                                <th>Статус</th>
+                                <th class="text-end pe-4">Дія</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var meeting in meetings)
+                            {
+                                <tr>
+                                    <td class="ps-4">@meeting.MeetingName</td>
+                                    <td>
+                                        <span class="badge bg-secondary">@meeting.MeetingId</span>
+                                    </td>
+                                    <td>@meeting.CreatedAt.ToLocalTime().ToString("g")</td>
+                                    <td>@(meeting.ScheduledToStartAt?.ToLocalTime().ToString("g") ?? "Не заплановано")</td>
+                                    <td>
+                                        @if (meeting.IsActive)
+                                        {
+                                            <span class="badge bg-success">Активна</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary">Неактивна</span>
+                                        }
+                                    </td>
+                                    <td class="text-end pe-4">
+                                        <button class="btn btn-sm @(meeting.IsActive ? "btn-outline-danger" : "btn-outline-success") btn-icon"
+                                                @onclick="() => ToggleStatus(meeting)"
+                                                title="@(meeting.IsActive ? "Деактивувати" : "Активувати")">
+                                            <i class="bi @(meeting.IsActive ? "bi-pause-circle" : "bi-play-circle")"></i>
+                                            <span class="ms-1 d-none d-md-inline">@(meeting.IsActive ? "Деактивувати" : "Активувати")</span>
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+</div>
 
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Назва</th>
-                <th>ID Концеренції</th>
-                <th>Створена</th>
-                <th>Запланована</th>
-                <th>Статус</th>
-                <th>Дія</th>
-            </tr>
-        </thead>
-        <tbody>
-            @foreach (var meeting in meetings)
-            {
-                <tr>
-                    <td>@meeting.MeetingName</td>
-                    <td>@meeting.MeetingId</td>
-                    <td>@meeting.CreatedAt.ToLocalTime().ToString("g")</td>
-                    <td>@(meeting.ScheduledToStartAt?.ToLocalTime().ToString("g") ?? "Не заплановано")</td>
-                    <td>
-                        @if (meeting.IsActive)
-                        {
-                            <span class="text-success">Активна</span>
-                        }
-                        else
-                        {
-                            <span class="text-secondary">Неактивна</span>
-                        }
-                    </td>
-                    <td>
-                        <button class="btn btn-sm @(meeting.IsActive ? "btn-danger" : "btn-success")"
-                                @onclick="() => ToggleStatus(meeting)">
-                            @(meeting.IsActive ? "Деактивувати" : "Активувати")
-                        </button>
-                    </td>
-                </tr>
-            }
-        </tbody>
-    </table>
-}
+<style>
+    .table th, .table td {
+        padding: 1rem;
+        vertical-align: middle;
+    }
+
+    .table-hover tbody tr:hover {
+        background-color: rgba(0, 0, 0, 0.05);
+    }
+
+    .btn-icon i {
+        vertical-align: middle;
+    }
+
+    .card {
+        border-radius: 0.75rem;
+        overflow: hidden;
+    }
+
+    .badge {
+        font-size: 0.9rem;
+        padding: 0.5em 0.75em;
+    }
+
+    @@media (max-width: 768px) {
+        .table th, .table td {
+            padding: 0.75rem;
+        }
+
+        .table th.ps-4, .table td.ps-4 {
+            padding-left: 0.75rem !important;
+        }
+
+        .table th.pe-4, .table td.pe-4 {
+            padding-right: 0.75rem !important;
+        }
+    }
+</style>
 
 @code {
     private bool hasMeetings = false;

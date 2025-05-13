@@ -8,16 +8,16 @@
 
 <PageTitle>Створити конференцію</PageTitle>
 
-<div class="max-w-lg mx-auto mt-10 p-6 bg-white shadow-xl rounded-xl space-y-6 border border-gray-300">
+<div class="container-mt-4">
     <h2 class="text-3xl font-semibold text-center text-gray-800">Створити нову конференцію</h2>
 
-    <div class="space-y-4">
+    <div>
         <!-- ID конференції -->
-        <div>
+        <div class="m-1">
             <label class="font-medium text-gray-700">ID конференції:</label>
             <div class="relative">
                 <input class="border border-gray-300 px-4 py-2 rounded-lg w-full focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                       value="@MeetingId" @oninput="CheckIdAvailability" />
+                        value="@MeetingId" @oninput="CheckIdAvailability" />
                 @if (IdAlreadyTaken)
                 {
                     <span class="absolute text-red-600 text-sm mt-1">Цей ID вже зайнятий</span>
@@ -26,53 +26,44 @@
         </div>
 
         <!-- Назва конференції -->
-        <div>
+        <div class="m-1">
             <label class="font-medium text-gray-700">Назва конференції:</label>
-            <input class="border border-gray-300 px-4 py-2 rounded-lg w-full focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                   @bind="MeetingName"  />
+            <div class="relative">
+                <input class="border border-gray-300 px-4 py-2 rounded-lg w-full focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        @bind="MeetingName" />
+            </div>
         </div>
 
         <!-- Запланована конференція? -->
-        <div class="flex items-center">
+        <div class="flex items-center m-1">
             <label class="font-medium text-gray-700">Запланована конференція?</label>
             <input type="checkbox" class="ml-3 rounded" @bind="IsScheduled" />
         </div>
 
         @if (IsScheduled)
         {
-            <div class="mt-4">
+            <div class="m-1">
                 <label class="font-medium text-gray-700">Оберіть дату та час:</label>
                 <input type="datetime-local"
-                       class="border border-gray-300 px-4 py-2 rounded-lg w-full focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                       @onchange="OnDateChanged"
-                       min="@MinDateTime" />
-
-                @if (IsDateInvalid)
-                {
-                    <div class="text-red-600 mt-1 text-sm">Дата не може бути в минулому.</div>
-                }
+                        class="border border-gray-300 px-4 py-2 rounded-lg w-full focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                        @onchange="OnDateChanged"
+                        min="@MinDateTime" />
             </div>
         }
     </div>
 
     <!-- Кнопка для генерації нового ID -->
-    <button class="bg-blue-600 text-black px-6 py-2 rounded-lg w-full hover:bg-blue-700 transition focus:outline-none focus:ring-2 focus:ring-blue-400"
-            @onclick="GenerateMeetingId">
-        Згенерувати новий ID
-    </button>
-
-    <!-- Кнопка для створення конференції -->
-    <button class="bg-green-600 text-black px-6 py-2 rounded-lg w-full hover:bg-green-700 transition focus:outline-none focus:ring-2 focus:ring-green-400"
-            @onclick="CreateTheMeeting"
-            disabled="@(!CanCreate && !IdAlreadyTaken)">
-        Створити конференцію
-    </button>
+    <div class="mt-2">
+        <button class="btn btn-primary" @onclick="GenerateMeetingId"> Згенерувати новий ID </button>
+        <!-- Кнопка для створення конференції -->
+        <button class="btn btn-success" @onclick="CreateTheMeeting" disabled="@(!CanCreate && !IdAlreadyTaken)"> Створити конференцію </button>
+    </div>
+    
 </div>
-
 
 @code {
     private string MeetingId = string.Empty;
-    private string MeetingName = "/test: GAY BAR";
+    private string MeetingName = string.Empty;
     private bool CanCreate => !string.IsNullOrWhiteSpace(MeetingId);
     private bool IdAlreadyTaken = false;
     private bool IsScheduled = false;
@@ -120,6 +111,10 @@
         if (user == null)
             return;
 
+        if (MeetingName == string.Empty)
+        {
+            MeetingName = user.DisplayName + " meeting";
+        }
         var meeting = new Meeting()
         {
             MeetingId = MeetingId,

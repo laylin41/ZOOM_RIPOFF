@@ -4,69 +4,83 @@
 @inject AuthenticationStateProvider AuthProvider
 @attribute [Authorize]
 
-<h3>Мій профіль</h3>
+<div class="container mt-4">
+    <h2 class="mb-4 text-center">Мій профіль</h2>
 
-@if (!string.IsNullOrEmpty(success))
-{
-    <div class="alert alert-success">@success</div>
-}
-@if (!string.IsNullOrEmpty(error))
-{
-    <div class="alert alert-danger">@error</div>
-}
+    @if (!string.IsNullOrEmpty(success))
+    {
+        <div class="alert alert-success">@success</div>
+    }
+    @if (!string.IsNullOrEmpty(error))
+    {
+        <div class="alert alert-danger">@error</div>
+    }
 
-@if (!string.IsNullOrEmpty(profileModel.AvatarUrl))
-{
-    <img src="@profileModel.AvatarUrl" alt="Avatar" style="width: 100px; height: 100px; border-radius: 50%;" />
-}
-
-<form method="post" enctype="multipart/form-data" action="/auth/upload-avatar">
-    <input type="file" name="avatar" class="form-control mb-2" />
-    <button class="btn btn-outline-secondary">Завантажити аватарку</button>
-</form>
-
-<EditForm Model="profileModel">
-    <form method="post" action="/auth/update-profile">
-        <input type="hidden" name="email" value="@profileModel.Email" />
-        <div class="mb-3">
-            <label>Email</label>
-            <InputText class="form-control" @bind-Value="profileModel.Email" name="email" />
+    <div class="card mb-4">
+        <div class="card-body d-flex align-items-center">
+            @if (!string.IsNullOrEmpty(profileModel.AvatarUrl))
+            {
+                <img src="@profileModel.AvatarUrl" alt="Avatar" class="rounded-circle me-3" style="width: 100px; height: 100px;" />
+            }
+            <form method="post" enctype="multipart/form-data" action="/auth/upload-avatar" class="w-100">
+                <div class="mb-2">
+                    <input type="file" name="avatar" class="form-control" />
+                </div>
+                <button class="btn btn-outline-secondary btn-sm">Завантажити аватарку</button>
+            </form>
         </div>
-        <div class="mb-3">
-            <label>Відображуване ім’я</label>
-            <InputText class="form-control" @bind-Value="profileModel.DisplayName" name="displayName" />
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title mb-3">Інформація профілю</h5>
+            <EditForm Model="profileModel">
+                <form method="post" action="/auth/update-profile">
+                    <input type="hidden" name="email" value="@profileModel.Email" />
+                    <div class="mb-3">
+                        <label class="form-label">Email</label>
+                        <InputText class="form-control" @bind-Value="profileModel.Email" name="email" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Відображуване ім’я</label>
+                        <InputText class="form-control" @bind-Value="profileModel.DisplayName" name="displayName" />
+                    </div>
+                    <button class="btn btn-primary" type="submit">Зберегти</button>
+                </form>
+            </EditForm>
         </div>
-        <button class="btn btn-primary" type="submit">Зберегти</button>
-    </form>
-</EditForm>
-
-<hr />
-
-<h4>Особистий ID для зустрічей</h4>
-
-@if (!string.IsNullOrEmpty(profileModel.MeetingId))
-{
-    <p><b>ID:</b> @profileModel.MeetingId</p>
-}
-<form method="post" action="/auth/generate-meeting-id">
-    <button class="btn btn-outline-info">Згенерувати новий</button>
-</form>
-
-<hr />
-
-<h4>Змінити пароль</h4>
-
-<form method="post" action="/auth/change-password">
-    <div class="mb-3">
-        <label>Старий пароль</label>
-        <input type="password" name="oldPassword" class="form-control" />
     </div>
-    <div class="mb-3">
-        <label>Новий пароль</label>
-        <input type="password" name="newPassword" class="form-control" />
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h5 class="card-title">Особистий ID для зустрічей</h5>
+            @if (!string.IsNullOrEmpty(profileModel.MeetingId))
+            {
+                <p class="mb-3"><strong>ID:</strong> @profileModel.MeetingId</p>
+            }
+            <form method="post" action="/auth/generate-meeting-id">
+                <button class="btn btn-outline-info">Згенерувати новий</button>
+            </form>
+        </div>
     </div>
-    <button class="btn btn-warning" type="submit">Змінити пароль</button>
-</form>
+
+    <div class="card mb-5">
+        <div class="card-body">
+            <h5 class="card-title">Змінити пароль</h5>
+            <form method="post" action="/auth/change-password">
+                <div class="mb-3">
+                    <label class="form-label">Старий пароль</label>
+                    <input type="password" name="oldPassword" class="form-control" />
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Новий пароль</label>
+                    <input type="password" name="newPassword" class="form-control" />
+                </div>
+                <button class="btn btn-warning" type="submit">Змінити пароль</button>
+            </form>
+        </div>
+    </div>
+</div>
 
 @code {
     private ProfileModel profileModel = new();

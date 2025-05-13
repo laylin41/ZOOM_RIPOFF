@@ -4,125 +4,274 @@
 @inject NavigationManager Navigation
 @inject IMeetingService MeetingService
 @inject IJSRuntime JS
-
 @rendermode InteractiveServer
 
-@if (meeting != null)
-{
-    @if (!meeting.IsActive)
+<div class="container-fluid vh-100 d-flex flex-column">
+    @if (meeting != null)
     {
-        <h2 class="text-danger">Meeting Room: @meeting.MeetingName (ID:@RoomId (Inactive))</h2>
-        @if (meeting.ScheduledToStartAt != null)
-        {
-            <h2 class="text-success">Meeting is scheduled to start at @meeting.ScheduledToStartAt</h2>
-        }
-    }
-    else
-    {
-        <h3>Meeting Room: @meeting.MeetingName (ID:@RoomId)</h3>
-
-        <div class="participants">
-            @foreach (var user in Users)
+        <!-- Header -->
+        <div class="p-3 bg-primary text-white shadow-sm d-flex justify-content-between align-items-center">
+            <h3 class="mb-0">
+                @meeting.MeetingName (ID: @RoomId)
+                @if (!meeting.IsActive)
+                {
+                    <span class="badge bg-danger ms-2">Неактивна</span>
+                }
+            </h3>
+            @if (meeting.ScheduledToStartAt != null && !meeting.IsActive)
             {
-                <div class="user-tile">
-                    <img src="@user.AvatarUrl" class="avatar" style="width: 200px; height: 200px; object-fit: cover;" />
-                    <div>@user.UserName</div>
-                    <div>
-                        <span>@(user.IsMicrophoneEnabled ? "🎤" : "🔇")</span>
-                        <span>@(user.IsVideoEnabled ? "📹" : "📷❌")</span>
+                <span class="fw-light">Заплановано на @meeting.ScheduledToStartAt?.ToLocalTime().ToString("g")</span>
+            }
+        </div>
+
+        @if (meeting.IsActive)
+        {
+            <div class="d-flex">
+                <!-- Participants Section -->
+                <div class="p-3 bg-white shadow-sm" style="width: 300px; overflow-y: auto;">
+                    <h5 class="fw-bold mb-3 text-primary">Учасники (@Users.Count)</h5>
+                    <div class="participant-grid">
+                        <!-- bullshit to be ignored (reference for the future when there will be video-connection)
+                            it is diabolically wrong, just a reference from chatgpt
+                        -->
+                       @*  <div class="flex-grow-1 p-3 video-grid">
+                            @foreach (var user in Users)
+                            {
+                                <div class="video-wrapper">
+                                    <video id="video-@user.UserId" autoplay playsinline muted="@user.UserId == UserId"></video>
+                                    <div class="video-label">@user.UserName</div>
+                                </div>
+                            }
+                        </div> *@
+                        @foreach (var user in Users)
+                        {
+                            <div class="card participant-tile shadow-sm border-0">
+                                <div class="card-body p-2 text-center">
+                                    <img src="@user.AvatarUrl" class="avatar rounded-circle mb-2" alt="@user.UserName's avatar" />
+                                    <div class="fw-semibold">@user.UserName</div>
+                                    <div class="d-flex justify-content-center gap-2 mt-1">
+                                        <span class="badge @(user.IsMicrophoneEnabled ? "bg-success" : "bg-secondary")">
+                                            <i class="bi @(user.IsMicrophoneEnabled ? "bi-mic-fill" : "bi-mic-mute-fill")"></i>
+                                        </span>
+                                        <span class="badge @(user.IsVideoEnabled ? "bg-success" : "bg-secondary")">
+                                            <i class="bi @(user.IsVideoEnabled ? "bi-camera-video-fill" : "bi-camera-video-off-fill")"></i>
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        }
                     </div>
                 </div>
-            }
-        </div>
+            </div>
 
-        <div class="controls">
-            <button @onclick="ToggleMic">@(MicEnabled ? "Mute Mic" : "Unmute Mic")</button>
-            <button @onclick="ToggleVideo">@(VideoEnabled ? "Disable Video" : "Enable Video")</button>
-            <button @onclick="ExitMeeting">Exit Meeting</button>
-        </div>
-
-
-        <hr />
-        <h4>Chat</h4>
-
-        <div>
-            <label>
-                <input type="checkbox" @bind="IsPrivate" />
-                Private Message
-            </label>
-
-            @if (IsPrivate)
+            <!-- Chat -->
+            @if (showChats)
             {
-                <select @bind="SelectedPrivateUserId">
-                    <option disabled selected value="">-- Select User --</option>
-                    @foreach (var user in Users.Where(u => u.UserId != UserId))
-                    {
-                        <option value="@user.UserId">@user.UserName</option>
-                    }
-                    @foreach (var user in DisconnectedButWithChatUsers.Where(u => u.UserId != UserId))
-                    {
-                        <option value="@user.UserId">@user.UserName (Offline)</option>
-                    })
-                </select>
-            }
-        </div>
-
-        <div class="chat-box" style="max-height: 300px; overflow-y: auto; border: 1px solid gray; padding: 8px;">
-            @if (!IsPrivate)
-            {
-                @foreach (var msg in ChatHistory)
-                {
-                    <div>
-                        <b>@msg.SenderName:</b>
-                        @if (msg.IsFile)
+                <!-- Chat Section -->
+                <div class="card chat-container d-flex">
+                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Чат</h5>
+                        <div>
+                            <label class="text-white me-2">
+                                <input type="checkbox" @bind="IsPrivate" class="me-1" /> Приватне повідомлення
+                            </label>
+                            @if (IsPrivate)
+                            {
+                                <select @bind="SelectedPrivateUserId" class="form-select form-select-sm d-inline-block" style="width: auto;">
+                                    <option disabled selected value="">-- Оберіть користувача --</option>
+                                    @foreach (var user in Users.Where(u => u.UserId != UserId))
+                                    {
+                                        <option value="@user.UserId">@user.UserName</option>
+                                    }
+                                    @foreach (var user in DisconnectedButWithChatUsers.Where(u => u.UserId != UserId))
+                                    {
+                                        <option value="@user.UserId">@user.UserName (Офлайн)</option>
+                                    }
+                                </select>
+                            }
+                        </div>
+                    </div>
+                    <div class="card-body chat-box p-3" style="overflow-y: auto;">
+                        @if (!IsPrivate)
                         {
-                            <a href="data:application/octet-stream;base64,@msg.FileContentBase64" download="@msg.FileName">
-                                📎 @msg.FileName
-                            </a>
+                            @foreach (var msg in ChatHistory)
+                            {
+                                <div class="chat-message mb-2">
+                                    <span class="fw-semibold">@msg.SenderName:</span>
+                                    @if (msg.IsFile)
+                                    {
+                                        <a href="data:application/octet-stream;base64,@msg.FileContentBase64" download="@msg.FileName" class="text-primary">
+                                            <i class="bi bi-file-earmark-arrow-down me-1"></i>@msg.FileName
+                                        </a>
+                                    }
+                                    else
+                                    {
+                                        <span>@msg.Content</span>
+                                    }
+                                </div>
+                            }
+                        }
+                        else if (!string.IsNullOrWhiteSpace(SelectedPrivateUserId) && PrivateChatHistories.TryGetValue(SelectedPrivateUserId, out var privateMessages))
+                        {
+                            @foreach (var msg in privateMessages)
+                            {
+                                <div class="chat-message mb-2">
+                                    <span class="fw-semibold">@msg.SenderName:</span> @msg.Content
+                                </div>
+                            }
                         }
                         else
                         {
-                            @msg.Content
+                            <div class="text-muted text-center"><i>Немає приватних повідомлень.</i></div>
                         }
                     </div>
-                }
-            }
-            else if (!string.IsNullOrWhiteSpace(SelectedPrivateUserId) && PrivateChatHistories.TryGetValue(SelectedPrivateUserId, out var privateMessages))
-            {
-                @foreach (var msg in privateMessages)
-                {
-                    <div><b>@msg.SenderName:</b> @msg.Content</div>
-                }
-            }
-            else
-            {
-                <div><i>No private messages yet.</i></div>
-            }
-        </div>
-
-
-        <div style="margin-top: 10px;">
-            <input type="text" @bind="ChatMessage" @onkeypress="SendOnEnter" placeholder="Type your message..." style="width: 80%;" />
-            <button @onclick="SendMessage">Send</button>
-            <InputFile OnChange="HandleFileSelected"> </InputFile>
-            @if (SelectedFile != null)
-            {
-                <div>
-                    <p>File: @SelectedFile.Name (@(SelectedFile.Size / 1024) KB) </p>
-                    @if (SelectedFile.Size > 10000000) // 10MB limit
-                    {
-                        <p style="color: red;">File size exceeds 10MB limit.</p>
-                    }
-                    @if (CanSendFile)
-                    {
-                        <button @onclick="UploadFile">Send File</button>
-                    }
-
+                    <div class="card-footer bg-light p-3">
+                        <div class="input-group">
+                            <input type="text" @bind="ChatMessage" @onkeypress="SendOnEnter" class="form-control" placeholder="Введіть повідомлення..." />
+                            <button class="btn btn-primary" @onclick="SendMessage"><i class="bi bi-send"></i></button>
+                        </div>
+                        <div class="mt-2">
+                            <InputFile OnChange="HandleFileSelected" class="form-control" />
+                            @if (SelectedFile != null)
+                            {
+                                <div class="mt-2">
+                                    <span>Файл: @SelectedFile.Name (@(SelectedFile.Size / 1024) KB)</span>
+                                    @if (SelectedFile.Size > 10000000)
+                                    {
+                                        <span class="text-danger ms-2">Розмір файлу перевищує ліміт 10MB.</span>
+                                    }
+                                    @if (CanSendFile)
+                                    {
+                                        <button class="btn btn-outline-primary btn-sm mt-1" @onclick="UploadFile">Надіслати файл</button>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
                 </div>
             }
-        </div>
+
+            <!-- Controls -->
+            <div class="m-2 d-flex justify-content-center gap-3" style="bottom:auto">
+                <button class="btn btn-outline-primary btn-icon" @onclick="ToggleMic" title="@(MicEnabled ? "Вимкнути мікрофон" : "Увімкнути мікрофон")">
+                    <i class="bi @(MicEnabled ? "bi-mic-fill" : "bi-mic-mute-fill")"></i>
+                </button>
+                <button class="btn btn-outline-primary btn-icon" @onclick="ToggleVideo" title="@(VideoEnabled ? "Вимкнути відео" : "Увімкнути відео")">
+                    <i class="bi @(VideoEnabled ? "bi-camera-video-fill" : "bi-camera-video-off-fill")"></i>
+                </button>
+                <button class="btn btn-outline-primary btn-icon" @onclick="ToggleChat" title="@(showChats ? "Відкрити чат" : "Закрити чат")">
+                    <i class="bi @(showChats ? "bi-chat-left" : "bi-chat-left-text")"></i>
+                </button>
+                <button class="btn btn-danger" @onclick="ExitMeeting">
+                    <i class="bi bi-box-arrow-right"></i> Вийти
+                </button>
+            </div>
+        }
     }
-}
+</div>
+
+<style>
+    .vh-100 {
+        height: 100vh;
+    }
+
+    .participant-tile {
+        transition: transform 0.2s;
+    }
+
+    .participant-tile:hover {
+        transform: translateY(-2px);
+    }
+
+    .avatar {
+        width: 80px;
+        height: 80px;
+        object-fit: cover;
+    }
+
+    .chat-container {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        height: 100%;
+    }
+
+    .chat-box {
+        flex-grow: 1;
+        overflow-y: auto;
+        min-height: 0;
+    }
+
+    .chat-message {
+        padding: 0.2rem;
+        border-radius: 0.2rem;
+        max-width: 80%;
+    }
+
+    .btn-icon {
+        width: 50px;
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 1.2rem;
+    }
+
+    @@media (max-width: 768px) {
+        .participant-tile .avatar {
+            width: 60px;
+            height: 60px;
+        }
+
+        .btn-icon {
+            width: 40px;
+            height: 40px;
+            font-size: 1rem;
+        }
+
+        .participant-section {
+            width: 200px;
+        }
+    }
+
+    @* .video-tile {
+        width: 100%;
+        height: auto;
+        border-radius: 0.5rem;
+        object-fit: cover;
+    }
+
+    .participant-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 1rem;
+    }
+
+    .video-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+        gap: 1rem;
+    }
+
+    .video-wrapper {
+        position: relative;
+        background: black;
+        border-radius: 0.5rem;
+        overflow: hidden;
+    }
+
+    .video-label {
+        position: absolute;
+        bottom: 0;
+        background: rgba(0,0,0,0.5);
+        color: white;
+        width: 100%;
+        text-align: center;
+        padding: 0.25rem;
+        font-size: 0.9rem;
+    } *@
+
+</style>
 
 @code {
     [Parameter]
@@ -149,6 +298,13 @@
 
     private IBrowserFile? SelectedFile;
     private bool CanSendFile = true;
+
+    private bool showChats = false;
+
+    private void ToggleChat()
+    {
+        showChats = !showChats;
+    }
 
     private async Task UploadFile()
     {
