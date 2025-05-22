@@ -31,23 +31,20 @@
                 <div class="p-3 bg-white shadow-sm" style="width: 300px; overflow-y: auto;">
                     <h5 class="fw-bold mb-3 text-primary">Учасники (@Users.Count)</h5>
                     <div class="participant-grid">
-                        <!-- bullshit to be ignored (reference for the future when there will be video-connection)
-                            it is diabolically wrong, just a reference from chatgpt
-                        -->
-                       @*  <div class="flex-grow-1 p-3 video-grid">
-                            @foreach (var user in Users)
-                            {
-                                <div class="video-wrapper">
-                                    <video id="video-@user.UserId" autoplay playsinline muted="@user.UserId == UserId"></video>
-                                    <div class="video-label">@user.UserName</div>
-                                </div>
-                            }
-                        </div> *@
                         @foreach (var user in Users)
                         {
                             <div class="card participant-tile shadow-sm border-0">
                                 <div class="card-body p-2 text-center">
-                                    <img src="@user.AvatarUrl" class="avatar rounded-circle mb-2" alt="@user.UserName's avatar" />
+
+                                    <video id="localVideo" oncanplay="this.muted=true;this.autoplay=true;this.playsinline=true"
+                                           style="width: 400px; height: 300px; border: 2px solid #333; @(user.IsVideoEnabled ? "" : "display: none;")">
+                                    </video>
+
+                                    <img src="@user.AvatarUrl"
+                                         class="avatar rounded-circle mb-2"
+                                         alt="@user.UserName's avatar"
+                                         style="@(user.IsVideoEnabled ? "display: none;" : "")" />
+
                                     <div class="fw-semibold">@user.UserName</div>
                                     <div class="d-flex justify-content-center gap-2 mt-1">
                                         <span class="badge @(user.IsMicrophoneEnabled ? "bg-success" : "bg-secondary")">
@@ -217,6 +214,13 @@
         font-size: 1.2rem;
     }
 
+    .participant-video {
+        width: 80px;
+        height: 80px;
+        object-fit: cover;
+        border-radius: 50%;
+    }
+
     @@media (max-width: 768px) {
         .participant-tile .avatar {
             width: 60px;
@@ -233,43 +237,6 @@
             width: 200px;
         }
     }
-
-    @* .video-tile {
-        width: 100%;
-        height: auto;
-        border-radius: 0.5rem;
-        object-fit: cover;
-    }
-
-    .participant-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-        gap: 1rem;
-    }
-
-    .video-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-        gap: 1rem;
-    }
-
-    .video-wrapper {
-        position: relative;
-        background: black;
-        border-radius: 0.5rem;
-        overflow: hidden;
-    }
-
-    .video-label {
-        position: absolute;
-        bottom: 0;
-        background: rgba(0,0,0,0.5);
-        color: white;
-        width: 100%;
-        text-align: center;
-        padding: 0.25rem;
-        font-size: 0.9rem;
-    } *@
 
 </style>
 
@@ -300,6 +267,8 @@
     private bool CanSendFile = true;
 
     private bool showChats = false;
+
+    private IJSObjectReference? webrtcModule;
 
     private void ToggleChat()
     {
@@ -371,6 +340,7 @@
 
         if (firstRender)
         {
+            webrtcModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/webrtc.js");
             dotNetRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("registerBeforeUnload", dotNetRef);
 
@@ -450,15 +420,30 @@
                 var user = Users.FirstOrDefault(u => u.ConnectionId == connId);
                 if (user != null)
                 {
-                    if (type == "video") user.IsVideoEnabled = isEnabled;
-                    if (type == "microphone") user.IsMicrophoneEnabled = isEnabled;
-
-                    if (user.UserId == UserId)
+                    if (type == "video")
                     {
-                        if (type == "video")
-                            VideoEnabled = isEnabled;
-                        if (type == "microphone")
-                            MicEnabled = isEnabled;
+                        user.IsVideoEnabled = isEnabled;
+                        if (isEnabled)
+                        {
+                            // invoke js to turn on video of other user to me
+                        }
+                        else
+                        {
+                            // invoke js to turn off video of other user to me
+                        }
+                    }
+
+                    if (type == "microphone")
+                    {
+                        user.IsMicrophoneEnabled = isEnabled;
+                        if (isEnabled)
+                        {
+                            // invoke js to turn on microphone of other user to me
+                        }
+                        else
+                        {
+                            // invoke js to turn off microphone of other user to me
+                        }
                     }
 
                     Console.WriteLine($"UserStatusChanged: ConnectionId={connId}, Type={type}, IsEnabled={isEnabled}"); // log
@@ -476,7 +461,7 @@
                 {
                     //Users.Remove(user);
                     Users.RemoveAll(u => u.UserId == user.UserId);
-                    
+
                     if (PrivateChatHistories.ContainsKey(user.UserId) && !DisconnectedButWithChatUsers.Any(u => u.UserId == user.UserId))
                     {
                         DisconnectedButWithChatUsers.Add(user);
@@ -542,13 +527,30 @@
     private async Task ToggleMic()
     {
         MicEnabled = !MicEnabled;
+        await UpdateMedia();
         await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "microphone", MicEnabled, UserId)!;
     }
 
     private async Task ToggleVideo()
     {
         VideoEnabled = !VideoEnabled;
+        await UpdateMedia();
         await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "video", VideoEnabled, UserId)!;
+    }
+
+    private async Task UpdateMedia()
+    {
+        
+        if (VideoEnabled || MicEnabled)
+        {
+            Console.WriteLine($"Update media called, Video:{VideoEnabled}, Mic:{MicEnabled}");
+            await JS.InvokeAsync<bool>("startMedia", "localVideo", VideoEnabled, MicEnabled);
+        }
+        else
+        {
+            Console.WriteLine($"Stopping media, Video:{VideoEnabled}, Mic:{MicEnabled}");
+            await JS.InvokeVoidAsync("stopMedia");
+        }
     }
 
     private async Task ExitMeeting()

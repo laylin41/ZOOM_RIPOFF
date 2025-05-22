@@ -8,5 +8,6 @@
         public bool IsVideoEnabled { get; set; } = false;
         public bool IsMicrophoneEnabled { get; set; } = false;
         public string AvatarUrl { get; set; } = "/avatars/default.png";
+        public string VideoStreamUrl { get; set; } = string.Empty;
     }
 }

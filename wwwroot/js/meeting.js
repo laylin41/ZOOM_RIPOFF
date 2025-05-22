@@ -12,7 +12,7 @@ window.startVideo = async function (localVideoId, remoteVideoId) {
     document.getElementById(localVideoId).srcObject = localStream;
 
     hubConnection = new signalR.HubConnectionBuilder()
-        .withUrl("/videohub")
+        .withUrl("/meetinghub")
         .build();
 
     hubConnection.on("ReceiveConnectionId", (id) => {
