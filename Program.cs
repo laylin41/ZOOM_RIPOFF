@@ -56,6 +56,8 @@ app.MapHub<MeetingHub>("/meetinghub", options =>
     options.AllowStatefulReconnects = true;
 });
 
+app.MapHub<VideoHub>("/videohub");
+
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
 {
