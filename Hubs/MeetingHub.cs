@@ -178,6 +178,7 @@ namespace ZOOM_RIPOFF.Hubs
                 var user = users.FirstOrDefault(u => u.UserId == userId);
                 if (user != null)
                 {
+                    user.ConnectionId = Context.ConnectionId;
                     if (statusType == "video")
                         user.IsVideoEnabled = isEnabled;
                     else if (statusType == "microphone")

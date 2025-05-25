@@ -5,7 +5,7 @@
 @inject IMeetingService MeetingService
 @inject IJSRuntime JS
 @rendermode InteractiveServer
-@implements IAsyncDisposable
+@implements IDisposable
 
 <div class="container-fluid vh-100 d-flex flex-column">
     @if (meeting != null)
@@ -36,13 +36,13 @@
                         {
                             <div class="card participant-tile shadow-sm border-0">
                                 <div class="card-body p-2 text-center">
-                                    @if (user.HasActiveStream && user.IsVideoEnabled)
+                                    @if (user.UserId == UserId && StreamActive && VideoEnabled)
                                     {
-                                        <video id="video-@user.UserId" class="avatar rounded mb-2" autoplay muted="@(user.UserId == UserId)"></video>
+                                        <video id="video-$@user.UserId" class="avatar rounded mb-2" autoplay oncanplay="this.muted=true" playsinline></video>
                                     }
-                                    else if (user.UserId == UserId && StreamActive)
+                                    else if (user.UserId != UserId && user.HasActiveStream && user.IsVideoEnabled)
                                     {
-                                        <video id="video-@user.UserId" class="avatar rounded mb-2" autoplay muted="true"></video>
+                                        <video id="video-$@user.UserId" class="avatar rounded mb-2" autoplay playsinline></video>
                                     }
                                     else
                                     {
@@ -184,8 +184,8 @@
     }
 
     .avatar {
-        width: 80px;
-        height: 80px;
+        width: 120px;
+        height: 120px;
         object-fit: cover;
     }
 
@@ -341,9 +341,6 @@
 
         if (firstRender)
         {
-            dotNetRef = DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("registerBeforeUnload", dotNetRef);
-
             try
             {
                 var authState = await AuthProvider.GetAuthenticationStateAsync();
@@ -374,6 +371,24 @@
                 .WithUrl(Navigation.ToAbsoluteUri("/meetinghub"))
                 .WithAutomaticReconnect()
                 .Build();
+
+            _hubConnection.Reconnected += async (connectionId) =>
+            {
+                Console.WriteLine($"[${UserId}] HubConnection reconnected, new connectionId={connectionId}");
+                try
+                {
+                    // Re-initialize WebRTCInterop with new DotNetObjectReference
+                    dotNetRef = DotNetObjectReference.Create(this);
+                    await JS.InvokeVoidAsync("WebRTCInterop.init", UserId, dotNetRef);
+                    Console.WriteLine($"[${UserId}] Re-initialized WebRTCInterop after reconnection");
+                    await _hubConnection.InvokeAsync("JoinMeeting", RoomId, UserId, UserName, AvatarUrl);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[${UserId}] Error on reconnection: {ex.Message}");
+
+                }
+            };
 
             Console.WriteLine($"Registering handlers for {UserName}");
 
@@ -476,7 +491,7 @@
                     {
                         DisconnectedButWithChatUsers.Add(user);
                     }
-                    await JS.InvokeVoidAsync("WebRTCInterop.closePeerConnection", user.UserId, UserId);
+                    await JS.InvokeVoidAsync("WebRTCInterop.closePeerConnection", UserId, user.UserId);
                     await InvokeAsync(StateHasChanged);
                 }
             });
@@ -564,21 +579,14 @@
 
             try
             {
-                Console.WriteLine($"Starting HubConnection for userId={UserId}");
+                Console.WriteLine($"[${UserId}] Starting HubConnection");
+                dotNetRef = DotNetObjectReference.Create(this);
+                await JS.InvokeVoidAsync("WebRTCInterop.init", UserId, dotNetRef);
+                await JS.InvokeVoidAsync("registerBeforeUnload", dotNetRef);
                 await _hubConnection.StartAsync();
-                Console.WriteLine($"HubConnection started, state={_hubConnection.State}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error starting HubConnection: {ex.Message}");
-                return;
-            }
-
-            if (_hubConnection.State == HubConnectionState.Connected)
-            {
-                Console.WriteLine($"Calling JoinMeeting with UserId: {UserId}, UserName: {UserName}, AvatarUrl: {AvatarUrl}");
+                Console.WriteLine($"[${UserId}] HubConnection started, state={_hubConnection.State}");
                 await _hubConnection.InvokeAsync("JoinMeeting", RoomId, UserId, UserName, AvatarUrl);
-                
+                Console.WriteLine($"[${UserId}] Called JoinMeeting with UserId: {UserId}, UserName: {UserName}, AvatarUrl: {AvatarUrl}");
                 var currentUser = new UserConnectionInfo
                     {
                         UserId = UserId,
@@ -587,28 +595,18 @@
                         ConnectionId = _hubConnection.ConnectionId ?? string.Empty,
                         IsVideoEnabled = false,
                         IsMicrophoneEnabled = false,
-                        HasActiveStream = false 
+                        HasActiveStream = false
                     };
                 if (!Users.Any(u => u.UserId == UserId))
                 {
-                    Console.WriteLine($"Adding current user: {UserName} to Users list (from OnAfterRenderAsync)");
                     Users.Add(currentUser);
+                    Console.WriteLine($"[${UserId}] Adding current user: {UserName} to Users list (from OnAfterRenderAsync)");
                     await InvokeAsync(StateHasChanged);
-                    Console.WriteLine($"Users count after adding current user: {Users.Count}");
-                }
-
-                try
-                {
-                    await JS.InvokeVoidAsync("WebRTCInterop.init", UserId, dotNetRef);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error initializing WebRTC: {ex.Message}");
                 }
             }
-            else
+            catch (Exception ex)
             {
-                Console.WriteLine($"Connection not ready. Current state: {_hubConnection.State}");
+                Console.WriteLine($"[${UserId}] Error initializing: {ex.Message}");
             }
         }
         
@@ -617,7 +615,8 @@
             try
             {
                 // Check if video element exists and set stream
-                var videoElementId = $"video-{UserId}";
+                var videoElementId = $"video-${UserId}";
+                await InvokeAsync(StateHasChanged);
                 var streamSet = await JS.InvokeAsync<bool>("WebRTCInterop.setLocalStream", UserId, videoElementId);
                 if (!streamSet)
                 {
@@ -649,24 +648,29 @@
     [JSInvokable]
     public async Task OnRemoteStream(string remoteUserId, string streamId)
     {
-        var videoElementId = $"video-{remoteUserId}";
+        var videoElementId = $"video-${remoteUserId}";
         try
         {
+            await InvokeAsync(StateHasChanged); // Ensure DOM is updated
             var videoElementExists = await JS.InvokeAsync<bool>("WebRTCInterop.elementExists", videoElementId);
+            Console.WriteLine($"Video element ${videoElementId} exists: ${videoElementExists}");
             if (videoElementExists)
             {
-                await JS.InvokeVoidAsync("WebRTCInterop.setLocalStream", remoteUserId, videoElementId);
-                Console.WriteLine($"Set remote stream for {remoteUserId}");
+                var streamSet = await JS.InvokeAsync<bool>("WebRTCInterop.setRemoteStream", UserId, remoteUserId, videoElementId);
+                if (!streamSet)
+                {
+                    Console.WriteLine($"[${UserId}] Failed to set remote stream for {videoElementId}");
+                }
             }
             else
             {
-                Console.WriteLine($"Video element '{videoElementId}' not found in DOM");
+                Console.WriteLine($"Video element ${videoElementId} not found in DOM");
             }
             await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Error setting remote stream for {remoteUserId}: {ex.Message}");
+            Console.WriteLine($"Error setting remote stream for ${remoteUserId}: ${ex.Message}");
         }
     }
 
@@ -679,41 +683,41 @@
 
         Console.WriteLine($"ToggleMic: IsMicrophoneEnabled={MicEnabled}, StreamActive={StreamActive}");
 
-        if (StreamActive)
+        try
         {
-            try
+            if (StreamActive)
             {
                 var mediaStarted = await JS.InvokeAsync<bool>("WebRTCInterop.startMedia", UserId, VideoEnabled, MicEnabled);
                 if (mediaStarted)
                 {
-                    var videoElementId = $"video-{UserId}";
+                    var videoElementId = $"video-${UserId}";
+                    await InvokeAsync(StateHasChanged); // Ensure DOM updates
                     var streamSet = await JS.InvokeAsync<bool>("WebRTCInterop.setLocalStream", UserId, videoElementId);
                     if (!streamSet)
                     {
-                        Console.WriteLine($"Failed to set local stream for {videoElementId}");
-                    }
-                    else
-                    {
-                        Console.WriteLine($"Local stream set for {videoElementId}");
+                        Console.WriteLine($"Failed to set local stream for ${videoElementId}");
                     }
                 }
                 else
                 {
-                    Console.WriteLine($"Failed to start media for user {UserId}");
+                    Console.WriteLine("Failed to start media for user ${UserId}");
+                    MicEnabled = false;
+                    StreamActive = VideoEnabled;
                 }
             }
-            catch (Exception ex)
+            else
             {
-                Console.WriteLine($"Error in ToggleMic: {ex.Message}");
+                await JS.InvokeVoidAsync("WebRTCInterop.stopMedia", UserId);
             }
+            await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "microphone", MicEnabled, UserId);
+            await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "stream", StreamActive, UserId);
         }
-        else
+        catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("WebRTCInterop.stopMedia", UserId);
+            Console.WriteLine($"Error in ToggleMic: ${ex.Message}");
+            MicEnabled = false;
+            StreamActive = VideoEnabled;
         }
-
-        await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "microphone", MicEnabled, UserId);
-        await _hubConnection!.InvokeAsync("UpdateStatus", RoomId, "stream", StreamActive, UserId);
         await InvokeAsync(StateHasChanged);
     }
 
@@ -724,57 +728,42 @@
 
         Console.WriteLine($"ToggleVideo: IsVideoEnabled={VideoEnabled}, StreamActive={StreamActive}");
 
-        if (StreamActive)
+        try
         {
-            try
+            if (StreamActive)
             {
                 var mediaStarted = await JS.InvokeAsync<bool>("WebRTCInterop.startMedia", UserId, VideoEnabled, MicEnabled);
                 if (mediaStarted)
                 {
-                    var videoElementId = $"video-{UserId}";
+                    var videoElementId = $"video-${UserId}";
+                    await InvokeAsync(StateHasChanged);
                     var streamSet = await JS.InvokeAsync<bool>("WebRTCInterop.setLocalStream", UserId, videoElementId);
                     if (!streamSet)
                     {
-                        Console.WriteLine($"Failed to set local stream for {videoElementId}");
-                    }
-                    else
-                    {
-                        Console.WriteLine($"Local stream set for {videoElementId}");
+                        Console.WriteLine($"Failed to set local stream for ${videoElementId}");
                     }
                 }
                 else
                 {
-                    Console.WriteLine($"Failed to start media for user {UserId}");
+                    Console.WriteLine($"Failed to start media for user ${UserId}");
+                    VideoEnabled = false;
+                    StreamActive = MicEnabled;
                 }
             }
-            catch (Exception ex)
+            else
             {
-                Console.WriteLine($"Error in ToggleVideo: {ex.Message}");
+                await JS.InvokeVoidAsync("WebRTCInterop.stopMedia", UserId);
             }
+            await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "video", VideoEnabled, UserId);
+            await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "stream", StreamActive, UserId);
         }
-        else
+        catch (Exception ex)
         {
-            await JS.InvokeVoidAsync("WebRTCInterop.stopMedia", UserId);
+            Console.WriteLine($"Error in ToggleVideo: ${ex.Message}");
+            VideoEnabled = false;
+            StreamActive = MicEnabled;
         }
-
-        await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "video", VideoEnabled, UserId);
-        await _hubConnection!.InvokeAsync("UpdateStatus", RoomId, "stream", StreamActive, UserId);
         await InvokeAsync(StateHasChanged);
-    }
-
-    private async Task UpdateMedia()
-    {
-        
-        if (VideoEnabled || MicEnabled)
-        {
-            Console.WriteLine($"Update media called, Video:{VideoEnabled}, Mic:{MicEnabled}");
-            await JS.InvokeAsync<bool>("startMedia", "localVideo", VideoEnabled, MicEnabled);
-        }
-        else
-        {
-            Console.WriteLine($"Stopping media, Video:{VideoEnabled}, Mic:{MicEnabled}");
-            await JS.InvokeVoidAsync("stopMedia");
-        }
     }
 
     private async Task ExitMeeting()
@@ -821,27 +810,11 @@
         }
     }
 
-    public async ValueTask DisposeAsync()
+    public void Dispose()
     {
-        if (dotNetRef != null)
-        {
-            dotNetRef.Dispose();
-            dotNetRef = null;
-        }
-
-        if (_hubConnection != null)
-        {
-            try
-            {
-                await _hubConnection.StopAsync();
-                await _hubConnection.DisposeAsync();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error disposing SignalR connection: {ex.Message}");
-            }
-            _hubConnection = null;
-        }
+        dotNetRef?.Dispose();
+        _hubConnection?.DisposeAsync().GetAwaiter().GetResult();
+        Console.WriteLine($"[${UserId}] Disposed MeetingRoom component");
     }
 
     private async Task SendMessage()
