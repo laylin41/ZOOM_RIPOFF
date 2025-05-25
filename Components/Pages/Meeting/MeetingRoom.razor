@@ -271,8 +271,6 @@
 
     private bool showChats = false;
 
-    private IJSObjectReference? webrtcModule;
-
     private void ToggleChat()
     {
         showChats = !showChats;
@@ -343,7 +341,6 @@
 
         if (firstRender)
         {
-            webrtcModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/webrtc.js");
             dotNetRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("registerBeforeUnload", dotNetRef);
 
@@ -445,11 +442,20 @@
                     if (user.UserId == UserId)
                     {
                         if (type == "video")
+                        {
                             VideoEnabled = isEnabled;
+                            user.IsVideoEnabled = isEnabled;
+                        }
                         if (type == "microphone")
+                        {
                             MicEnabled = isEnabled;
+                            user.IsMicrophoneEnabled = isEnabled;
+                        }
                         if (type == "stream")
+                        {
                             StreamActive = isEnabled;
+                            user.HasActiveStream = isEnabled;
+                        }
                     }
                 }
             });
