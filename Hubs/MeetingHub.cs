@@ -17,9 +17,17 @@ namespace ZOOM_RIPOFF.Hubs
         public async Task JoinMeeting(string roomId, string userId, string userName, string avatarUrl)
         {
             var connectionId = Context.ConnectionId;
-            //Console.WriteLine($"JoinedMeeting for id: {userId}, conId:{connectionId}");
 
-            await Groups.AddToGroupAsync(connectionId, roomId);
+            if (string.IsNullOrEmpty(userId) || string.IsNullOrEmpty(userName))
+            {
+                Console.WriteLine($"Invalid join attempt: userId={userId}, userName={userName}, connectionId ={connectionId}");
+                return;
+            }
+            else 
+            {
+                Console.WriteLine($"Valid join attempt: userId={userId}, userName={userName}, connectionId ={connectionId}");
+            }
+            //Console.WriteLine($"JoinedMeeting for id: {userId}, conId:{connectionId}");
 
             var user = new UserConnectionInfo
             {
@@ -28,36 +36,48 @@ namespace ZOOM_RIPOFF.Hubs
                 UserName = userName,
                 IsVideoEnabled = false,
                 IsMicrophoneEnabled = false,
-                AvatarUrl = avatarUrl
+                AvatarUrl = string.IsNullOrEmpty(avatarUrl) ? "/avatars/default.png" : avatarUrl,
+                HasActiveStream = false
             };
 
-            // Додаємо до кімнати
-            RoomUsers.AddOrUpdate(roomId,
-                _ => new List<UserConnectionInfo> { user },
-                (_, list) =>
+            Console.WriteLine("Before adding user to room: " + user.UserName + ", RoomId: " + roomId + ", ConnectionId: " + connectionId);
+            // Add or update user in RoomUsers
+            RoomUsers.AddOrUpdate(
+                roomId,
+                new List<UserConnectionInfo> { user },
+                (key, list) =>
                 {
+                    // Use lock to ensure thread-safe list modification
                     lock (list)
                     {
                         var existing = list.FirstOrDefault(u => u.UserId == user.UserId);
                         if (existing != null)
                         {
+                            Console.WriteLine($"User {user.UserName} already exists in room {roomId}, replacing with new connectionId: {connectionId}");
                             list.Remove(existing);
-                            Clients.Group(roomId).SendAsync("UserLeft", existing.ConnectionId, existing.UserName).Wait();
                         }
                         list.Add(user);
-                        Clients.Group(roomId).SendAsync("UserJoined", user).Wait();
+                        Console.WriteLine($"Successfully added user {user.UserName} to room {roomId}, connectionId: {connectionId}");
                     }
                     return list;
                 });
 
-            var usersInRoom = RoomUsers[roomId]
+            // Add connection to SignalR group
+            await Groups.AddToGroupAsync(connectionId, roomId);
+
+            // Notify other clients in the room of the new user
+            await Clients.Group(roomId).SendAsync("UserJoined", user);
+
+            // Send current users (excluding the connecting user) to the new client
+            var usersInRoom = RoomUsers.GetOrAdd(roomId, _ => new List<UserConnectionInfo>())
                 .Where(u => u.ConnectionId != connectionId)
                 .ToList();
 
+            Console.WriteLine($"Sending CurrentUsers to connectionId={connectionId}, count={usersInRoom.Count}");
             await Clients.Client(connectionId).SendAsync("CurrentUsers", usersInRoom);
 
+            // Send chat history to the new client
             var chatHistory = new List<ChatMessage>();
-
             if (!ChatMessages.Keys.Any(rid => rid == roomId))
             {
                 ChatMessages.TryAdd(roomId, new List<ChatMessage>());
@@ -162,9 +182,9 @@ namespace ZOOM_RIPOFF.Hubs
                         user.IsVideoEnabled = isEnabled;
                     else if (statusType == "microphone")
                         user.IsMicrophoneEnabled = isEnabled;
-                    //Console.WriteLine($"Hub: Status changed conId: {connectionId}, roomId:{roomId}, userId:{userId} ");
+                    else if (statusType == "stream")
+                        user.HasActiveStream = isEnabled;
 
-                    // Повідомляємо інших про зміну
                     await Clients.Group(roomId).SendAsync("UserStatusChanged", connectionId, statusType, isEnabled);
                 }
             }
@@ -173,7 +193,7 @@ namespace ZOOM_RIPOFF.Hubs
         public async Task LeaveMeeting(string roomId, string userId, string userName)
         {
             var connectionId = Context.ConnectionId;
-            //Console.WriteLine($"LeaveMeeting called for userId: {userId}, userName: {userName}, connectionId: {connectionId}");
+            Console.WriteLine($"LeaveMeeting called for userId: {userId}, userName: {userName}, connectionId: {connectionId}");
 
             try
             {
@@ -188,7 +208,7 @@ namespace ZOOM_RIPOFF.Hubs
         public override async Task OnDisconnectedAsync(Exception? exception)
         {
             var connectionId = Context.ConnectionId;
-            //Console.WriteLine($"OnDisconnectedAsync called for connectionId: {connectionId}");
+            Console.WriteLine($"OnDisconnectedAsync called for connectionId: {connectionId}");
 
             try
             {
@@ -231,6 +251,9 @@ namespace ZOOM_RIPOFF.Hubs
 
         private async Task RemoveUser(string roomId, string userId, string userName, string connectionId, bool isExplicitLeave)
         {
+            Console.WriteLine($"Entered RemoveUser for userId={userId}, userName={userName}, connectionId={connectionId}, isExplicitLeave={isExplicitLeave}");
+            UserConnectionInfo? removedUser = null;
+
             if (RoomUsers.TryGetValue(roomId, out var users))
             {
                 lock (users)
@@ -238,25 +261,25 @@ namespace ZOOM_RIPOFF.Hubs
                     var user = users.FirstOrDefault(u => u.UserId == userId && u.ConnectionId == connectionId);
                     if (user != null)
                     {
+                        removedUser = user;
                         users.Remove(user);
-                        //Console.WriteLine($"Removed user {userName} from room {roomId} (Explicit: {isExplicitLeave})");
-
                         if (users.Count == 0)
                         {
                             RoomUsers.TryRemove(roomId, out _);
-                            //Console.WriteLine($"Removed empty room {roomId}");
                             ChatMessages.TryRemove(roomId, out _);
-                            // TODO: Мітинг розібратись коли вона стає неактивною
                         }
-
-                        Clients.Group(roomId).SendAsync("UserLeft", connectionId, userName).Wait();
-
-                        CleanUpPrivateChatsForUser(userId, roomId);
+                        Console.WriteLine($"Removed user: userName={userName}, connectionId={connectionId} from room={roomId}");
                     }
                     else
                     {
-                        Console.WriteLine($"UserId: {userId} or connectionId: {connectionId} not found in room {roomId}");
+                        Console.WriteLine($"UserId={userId} or connectionId={connectionId} not found in room={roomId}");
                     }
+                }
+
+                if (removedUser != null)
+                {
+                    await Clients.Group(roomId).SendAsync("UserLeft", removedUser);
+                    CleanUpPrivateChatsForUser(userId, roomId);
                 }
 
                 if (isExplicitLeave)
@@ -266,7 +289,7 @@ namespace ZOOM_RIPOFF.Hubs
             }
             else
             {
-                Console.WriteLine($"Room {roomId} not found for user removal");
+                Console.WriteLine($"Room {roomId} not found for userName={userName}, connectionId={connectionId} removal");
             }
         }
 
@@ -300,6 +323,117 @@ namespace ZOOM_RIPOFF.Hubs
                 PrivateChats.TryRemove(key, out _);
                 // Console.WriteLine($"Cleaned up private chat: {key}");
             }
+        }
+
+        public async Task SendOffer(string toUserId, string offer)
+        {
+            var connectionId = Context.ConnectionId;
+            var roomId = GetRoomId();
+            if (string.IsNullOrEmpty(roomId))
+            {
+                Console.WriteLine($"No room found for connectionId={connectionId} in SendOffer");
+                return;
+            }
+
+            if (!RoomUsers.TryGetValue(roomId, out var users))
+            {
+                Console.WriteLine($"Room {roomId} not found for SendOffer");
+                return;
+            }
+
+            var fromUser = users.FirstOrDefault(u => u.ConnectionId == connectionId);
+            if (fromUser == null)
+            {
+                Console.WriteLine($"No user found for connectionId={connectionId} in room={roomId}");
+                return;
+            }
+
+            var toUser = users.FirstOrDefault(u => u.UserId == toUserId);
+            if (toUser != null)
+            {
+                await Clients.Client(toUser.ConnectionId).SendAsync("ReceiveOffer", fromUser.UserId, offer);
+                Console.WriteLine($"Sent offer from userId={fromUser.UserId} to userId={toUserId} in room={roomId}");
+            }
+            else
+            {
+                Console.WriteLine($"User userId={toUserId} not found in room={roomId}");
+            }
+        }
+
+        public async Task SendAnswer(string toUserId, string answer)
+        {
+            var connectionId = Context.ConnectionId;
+            var roomId = GetRoomId();
+            if (string.IsNullOrEmpty(roomId))
+            {
+                Console.WriteLine($"No room found for connectionId={connectionId} in SendAnswer");
+                return;
+            }
+
+            if (!RoomUsers.TryGetValue(roomId, out var users))
+            {
+                Console.WriteLine($"Room {roomId} not found for SendAnswer");
+                return;
+            }
+
+            var fromUser = users.FirstOrDefault(u => u.ConnectionId == connectionId);
+            if (fromUser == null)
+            {
+                Console.WriteLine($"No user found for connectionId={connectionId} in room={roomId}");
+                return;
+            }
+
+            var toUser = users.FirstOrDefault(u => u.UserId == toUserId);
+            if (toUser != null)
+            {
+                await Clients.Client(toUser.ConnectionId).SendAsync("ReceiveAnswer", fromUser.UserId, answer);
+                Console.WriteLine($"Sent answer from userId={fromUser.UserId} to userId={toUserId} in room={roomId}");
+            }
+            else
+            {
+                Console.WriteLine($"User userId={toUserId} not found in room={roomId}");
+            }
+        }
+
+        public async Task SendIceCandidate(string toUserId, string candidate)
+        {
+            var connectionId = Context.ConnectionId;
+            var roomId = GetRoomId();
+            if (string.IsNullOrEmpty(roomId))
+            {
+                Console.WriteLine($"No room found for connectionId={connectionId} in SendIceCandidate");
+                return;
+            }
+
+            if (!RoomUsers.TryGetValue(roomId, out var users))
+            {
+                Console.WriteLine($"Room {roomId} not found for SendIceCandidate");
+                return;
+            }
+
+            var fromUser = users.FirstOrDefault(u => u.ConnectionId == connectionId);
+            if (fromUser == null)
+            {
+                Console.WriteLine($"No user found for connectionId={connectionId} in room={roomId}");
+                return;
+            }
+
+            var toUser = users.FirstOrDefault(u => u.UserId == toUserId);
+            if (toUser != null)
+            {
+                await Clients.Client(toUser.ConnectionId).SendAsync("ReceiveIceCandidate", fromUser.UserId, candidate);
+                Console.WriteLine($"Sent ICE candidate from userId={fromUser.UserId} to userId={toUserId} in room={roomId}");
+            }
+            else
+            {
+                Console.WriteLine($"User userId={toUserId} not found in room={roomId}");
+            }
+        }
+
+        private string GetRoomId()
+        {
+            // Assuming the connection is already in a group, retrieve the roomId
+            return RoomUsers.FirstOrDefault(kvp => kvp.Value.Any(u => u.ConnectionId == Context.ConnectionId)).Key ?? string.Empty;
         }
     }
 }

@@ -5,6 +5,7 @@
 @inject IMeetingService MeetingService
 @inject IJSRuntime JS
 @rendermode InteractiveServer
+@implements IAsyncDisposable
 
 <div class="container-fluid vh-100 d-flex flex-column">
     @if (meeting != null)
@@ -31,23 +32,22 @@
                 <div class="p-3 bg-white shadow-sm" style="width: 300px; overflow-y: auto;">
                     <h5 class="fw-bold mb-3 text-primary">Учасники (@Users.Count)</h5>
                     <div class="participant-grid">
-                        <!-- bullshit to be ignored (reference for the future when there will be video-connection)
-                            it is diabolically wrong, just a reference from chatgpt
-                        -->
-                       @*  <div class="flex-grow-1 p-3 video-grid">
-                            @foreach (var user in Users)
-                            {
-                                <div class="video-wrapper">
-                                    <video id="video-@user.UserId" autoplay playsinline muted="@user.UserId == UserId"></video>
-                                    <div class="video-label">@user.UserName</div>
-                                </div>
-                            }
-                        </div> *@
                         @foreach (var user in Users)
                         {
                             <div class="card participant-tile shadow-sm border-0">
                                 <div class="card-body p-2 text-center">
-                                    <img src="@user.AvatarUrl" class="avatar rounded-circle mb-2" alt="@user.UserName's avatar" />
+                                    @if (user.HasActiveStream && user.IsVideoEnabled)
+                                    {
+                                        <video id="video-@user.UserId" class="avatar rounded mb-2" autoplay muted="@(user.UserId == UserId)"></video>
+                                    }
+                                    else if (user.UserId == UserId && StreamActive)
+                                    {
+                                        <video id="video-@user.UserId" class="avatar rounded mb-2" autoplay muted="true"></video>
+                                    }
+                                    else
+                                    {
+                                        <img src="@user.AvatarUrl" class="avatar rounded-circle mb-2" alt="@user.UserName's avatar" />
+                                    }
                                     <div class="fw-semibold">@user.UserName</div>
                                     <div class="d-flex justify-content-center gap-2 mt-1">
                                         <span class="badge @(user.IsMicrophoneEnabled ? "bg-success" : "bg-secondary")">
@@ -62,95 +62,95 @@
                         }
                     </div>
                 </div>
+
+                <!-- Chat -->
+                @if (showChats)
+                {
+                    <!-- Chat Section -->
+                    <div class="card chat-container d-flex">
+                        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">Чат</h5>
+                            <div>
+                                <label class="text-white me-2">
+                                    <input type="checkbox" @bind="IsPrivate" class="me-1" /> Приватне повідомлення
+                                </label>
+                                @if (IsPrivate)
+                                {
+                                    <select @bind="SelectedPrivateUserId" class="form-select form-select-sm d-inline-block" style="width: auto;">
+                                        <option disabled selected value="">-- Оберіть користувача --</option>
+                                        @foreach (var user in Users.Where(u => u.UserId != UserId))
+                                        {
+                                            <option value="@user.UserId">@user.UserName</option>
+                                        }
+                                        @foreach (var user in DisconnectedButWithChatUsers.Where(u => u.UserId != UserId))
+                                        {
+                                            <option value="@user.UserId">@user.UserName (Офлайн)</option>
+                                        }
+                                    </select>
+                                }
+                            </div>
+                        </div>
+                        <div class="card-body chat-box p-3" style="overflow-y: auto;">
+                            @if (!IsPrivate)
+                            {
+                                @foreach (var msg in ChatHistory)
+                                {
+                                    <div class="chat-message mb-2">
+                                        <span class="fw-semibold">@msg.SenderName:</span>
+                                        @if (msg.IsFile)
+                                        {
+                                            <a href="data:application/octet-stream;base64,@msg.FileContentBase64" download="@msg.FileName" class="text-primary">
+                                                <i class="bi bi-file-earmark-arrow-down me-1"></i>@msg.FileName
+                                            </a>
+                                        }
+                                        else
+                                        {
+                                            <span>@msg.Content</span>
+                                        }
+                                    </div>
+                                }
+                            }
+                            else if (!string.IsNullOrWhiteSpace(SelectedPrivateUserId) && PrivateChatHistories.TryGetValue(SelectedPrivateUserId, out var privateMessages))
+                            {
+                                @foreach (var msg in privateMessages)
+                                {
+                                    <div class="chat-message mb-2">
+                                        <span class="fw-semibold">@msg.SenderName:</span> @msg.Content
+                                    </div>
+                                }
+                            }
+                            else
+                            {
+                                <div class="text-muted text-center"><i>Немає приватних повідомлень.</i></div>
+                            }
+                        </div>
+                        <div class="card-footer bg-light p-3">
+                            <div class="input-group">
+                                <input type="text" @bind="ChatMessage" @onkeypress="SendOnEnter" class="form-control" placeholder="Введіть повідомлення..." />
+                                <button class="btn btn-primary" @onclick="SendMessage"><i class="bi bi-send"></i></button>
+                            </div>
+                            <div class="mt-2">
+                                <InputFile OnChange="HandleFileSelected" class="form-control" />
+                                @if (SelectedFile != null)
+                                {
+                                    <div class="mt-2">
+                                        <span>Файл: @SelectedFile.Name (@(SelectedFile.Size / 1024) KB)</span>
+                                        @if (SelectedFile.Size > 10000000)
+                                        {
+                                            <span class="text-danger ms-2">Розмір файлу перевищує ліміт 10MB.</span>
+                                        }
+                                        @if (CanSendFile)
+                                        {
+                                            <button class="btn btn-outline-primary btn-sm mt-1" @onclick="UploadFile">Надіслати файл</button>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                }
             </div>
-
-            <!-- Chat -->
-            @if (showChats)
-            {
-                <!-- Chat Section -->
-                <div class="card chat-container d-flex">
-                    <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0">Чат</h5>
-                        <div>
-                            <label class="text-white me-2">
-                                <input type="checkbox" @bind="IsPrivate" class="me-1" /> Приватне повідомлення
-                            </label>
-                            @if (IsPrivate)
-                            {
-                                <select @bind="SelectedPrivateUserId" class="form-select form-select-sm d-inline-block" style="width: auto;">
-                                    <option disabled selected value="">-- Оберіть користувача --</option>
-                                    @foreach (var user in Users.Where(u => u.UserId != UserId))
-                                    {
-                                        <option value="@user.UserId">@user.UserName</option>
-                                    }
-                                    @foreach (var user in DisconnectedButWithChatUsers.Where(u => u.UserId != UserId))
-                                    {
-                                        <option value="@user.UserId">@user.UserName (Офлайн)</option>
-                                    }
-                                </select>
-                            }
-                        </div>
-                    </div>
-                    <div class="card-body chat-box p-3" style="overflow-y: auto;">
-                        @if (!IsPrivate)
-                        {
-                            @foreach (var msg in ChatHistory)
-                            {
-                                <div class="chat-message mb-2">
-                                    <span class="fw-semibold">@msg.SenderName:</span>
-                                    @if (msg.IsFile)
-                                    {
-                                        <a href="data:application/octet-stream;base64,@msg.FileContentBase64" download="@msg.FileName" class="text-primary">
-                                            <i class="bi bi-file-earmark-arrow-down me-1"></i>@msg.FileName
-                                        </a>
-                                    }
-                                    else
-                                    {
-                                        <span>@msg.Content</span>
-                                    }
-                                </div>
-                            }
-                        }
-                        else if (!string.IsNullOrWhiteSpace(SelectedPrivateUserId) && PrivateChatHistories.TryGetValue(SelectedPrivateUserId, out var privateMessages))
-                        {
-                            @foreach (var msg in privateMessages)
-                            {
-                                <div class="chat-message mb-2">
-                                    <span class="fw-semibold">@msg.SenderName:</span> @msg.Content
-                                </div>
-                            }
-                        }
-                        else
-                        {
-                            <div class="text-muted text-center"><i>Немає приватних повідомлень.</i></div>
-                        }
-                    </div>
-                    <div class="card-footer bg-light p-3">
-                        <div class="input-group">
-                            <input type="text" @bind="ChatMessage" @onkeypress="SendOnEnter" class="form-control" placeholder="Введіть повідомлення..." />
-                            <button class="btn btn-primary" @onclick="SendMessage"><i class="bi bi-send"></i></button>
-                        </div>
-                        <div class="mt-2">
-                            <InputFile OnChange="HandleFileSelected" class="form-control" />
-                            @if (SelectedFile != null)
-                            {
-                                <div class="mt-2">
-                                    <span>Файл: @SelectedFile.Name (@(SelectedFile.Size / 1024) KB)</span>
-                                    @if (SelectedFile.Size > 10000000)
-                                    {
-                                        <span class="text-danger ms-2">Розмір файлу перевищує ліміт 10MB.</span>
-                                    }
-                                    @if (CanSendFile)
-                                    {
-                                        <button class="btn btn-outline-primary btn-sm mt-1" @onclick="UploadFile">Надіслати файл</button>
-                                    }
-                                </div>
-                            }
-                        </div>
-                    </div>
-                </div>
-            }
-
+            
             <!-- Controls -->
             <div class="m-2 d-flex justify-content-center gap-3" style="bottom:auto">
                 <button class="btn btn-outline-primary btn-icon" @onclick="ToggleMic" title="@(MicEnabled ? "Вимкнути мікрофон" : "Увімкнути мікрофон")">
@@ -233,44 +233,6 @@
             width: 200px;
         }
     }
-
-    @* .video-tile {
-        width: 100%;
-        height: auto;
-        border-radius: 0.5rem;
-        object-fit: cover;
-    }
-
-    .participant-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-        gap: 1rem;
-    }
-
-    .video-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-        gap: 1rem;
-    }
-
-    .video-wrapper {
-        position: relative;
-        background: black;
-        border-radius: 0.5rem;
-        overflow: hidden;
-    }
-
-    .video-label {
-        position: absolute;
-        bottom: 0;
-        background: rgba(0,0,0,0.5);
-        color: white;
-        width: 100%;
-        text-align: center;
-        padding: 0.25rem;
-        font-size: 0.9rem;
-    } *@
-
 </style>
 
 @code {
@@ -289,6 +251,7 @@
     private DotNetObjectReference<MeetingRoom>? dotNetRef;
     private bool MicEnabled = false;
     private bool VideoEnabled = false;
+    private bool StreamActive = false;
 
     private string ChatMessage = "";
     private string SelectedPrivateUserId = "";
@@ -406,81 +369,98 @@
                 .Build();
 
             Console.WriteLine($"Registering handlers for {UserName}");
+
             _hubConnection.On<UserConnectionInfo>("UserJoined", async (user) =>
             {
-                // Remove stale entries with same UserId
-                //Users.RemoveAll(u => u.UserId == user.UserId);
-                //DisconnectedButWithChatUsers.RemoveAll(u => u.UserId == user.UserId);
-
-                Console.WriteLine("UserJoined triggered"); //log
-                Console.WriteLine($"UserJoined: {user.UserName}, ConnectionId: {user.ConnectionId}"); //log
+                Console.WriteLine($"UserJoined triggered for user: {user.UserName}, ConnectionId: {user.ConnectionId}"); //log
                 if (!Users.Any(u => u.UserId == user.UserId))
                 {
-                    Console.WriteLine($"Adding user: {user.UserName}"); //log
                     Users.Add(user);
+                    Console.WriteLine($"Added user {user.UserName} to Users. Users count={Users.Count} (from UserJoined)");
+                    if (StreamActive && (user.IsVideoEnabled || user.IsMicrophoneEnabled))
+                    {
+                        await JS.InvokeVoidAsync("WebRTCInterop.startOffer", user.UserId, UserId);
+                    }
                     await InvokeAsync(StateHasChanged);
                 }
 
                 if (DisconnectedButWithChatUsers.Any(u => u.UserId == user.UserId))
                 {
-                    Console.WriteLine($"Removing user from dbwchUsers: {user.UserName}"); //log
                     DisconnectedButWithChatUsers.RemoveAll(u => u.UserId == user.UserId);
+                    Console.WriteLine($"Removed userId={user.UserId} from DisconnectedButWithChatUsers");
                     await InvokeAsync(StateHasChanged);
                 }
             });
 
             _hubConnection.On<List<UserConnectionInfo>>("CurrentUsers", async (users) =>
             {
-                //Console.WriteLine("CurrentUsers triggered"); //log
+                Console.WriteLine("CurrentUsers triggered"); //log
 
                 foreach (var user in users)
                 {
-                    //Console.WriteLine($"  - {user.UserName}, ConnectionId: {user.ConnectionId}"); //log
+                    Console.WriteLine($"  - {user.UserName}, ConnectionId: {user.ConnectionId}"); //log
                     if (!Users.Any(u => u.UserId == user.UserId))
                     {
-                        //Console.WriteLine($"Adding user from CurrentUsers: {user.UserName}"); //log
+                        Console.WriteLine($"Adding user from CurrentUsers: {user.UserName}"); //log
                         Users.Add(user);
+                        if (StreamActive && (user.IsVideoEnabled || user.IsMicrophoneEnabled))
+                        {
+                            await JS.InvokeVoidAsync("WebRTCInterop.startOffer", user.UserId, UserId);
+                        }
                     }
                 }
                 await InvokeAsync(StateHasChanged);
+                Console.WriteLine($"Users count after CurrentUsers: {Users.Count}");
             });
 
             _hubConnection.On<string, string, bool>("UserStatusChanged", async (connId, type, isEnabled) =>
             {
                 var user = Users.FirstOrDefault(u => u.ConnectionId == connId);
-                if (user != null)
+                if (user != null && user.UserId != UserId)
                 {
+                    Console.WriteLine($"UserStatusChanged: {user.UserName}, {type}={isEnabled}");
                     if (type == "video") user.IsVideoEnabled = isEnabled;
                     if (type == "microphone") user.IsMicrophoneEnabled = isEnabled;
+                    if (type == "stream") user.HasActiveStream = isEnabled;
 
+                    if (type != "stream" && StreamActive && isEnabled)
+                    {
+                        await JS.InvokeVoidAsync("WebRTCInterop.startOffer", user.UserId, UserId);
+                    }
+
+                    await InvokeAsync(StateHasChanged);
+                }
+                else if (user != null)
+                {
                     if (user.UserId == UserId)
                     {
                         if (type == "video")
                             VideoEnabled = isEnabled;
                         if (type == "microphone")
                             MicEnabled = isEnabled;
+                        if (type == "stream")
+                            StreamActive = isEnabled;
                     }
-
-                    Console.WriteLine($"UserStatusChanged: ConnectionId={connId}, Type={type}, IsEnabled={isEnabled}"); // log
-
-                    await InvokeAsync(StateHasChanged);
                 }
             });
 
             _hubConnection.On<string, string>("UserLeft", async (connId, userName) =>
             {
-                //Console.WriteLine("UserLeft triggered"); // log
-                //Console.WriteLine($"UserLeft: {userName}, ConnectionId: {connId}"); //log
+                Console.WriteLine("UserLeft triggered"); // log
+                Console.WriteLine($"UserLeft: {userName}, ConnectionId: {connId}"); //log
                 var user = Users.FirstOrDefault(u => u.ConnectionId == connId);
                 if (user != null)
                 {
                     //Users.Remove(user);
+                    Console.WriteLine($"Users count before removal: {Users.Count}"); //log
+                    Console.WriteLine($"Removing user: {user.UserName}, UserId: {user.UserId}"); //log
                     Users.RemoveAll(u => u.UserId == user.UserId);
-                    
+                    Console.WriteLine($"Users count after removal: {Users.Count}"); //log
                     if (PrivateChatHistories.ContainsKey(user.UserId) && !DisconnectedButWithChatUsers.Any(u => u.UserId == user.UserId))
                     {
                         DisconnectedButWithChatUsers.Add(user);
                     }
+                    await JS.InvokeVoidAsync("WebRTCInterop.closePeerConnection", user.UserId, UserId);
                     await InvokeAsync(StateHasChanged);
                 }
             });
@@ -514,7 +494,7 @@
                 {
                     if (!PrivateChatHistories.ContainsKey(fileMsg.SenderId))
                         PrivateChatHistories[fileMsg.SenderId] = new List<ChatMessage>();
-                    PrivateChatHistories[fileMsg.SenderId].Add(fileMsg);
+                    PrivateChatHistories[fileMsg.SenderId].Add(fileMsg);    
                 }
                 else
                 {
@@ -524,37 +504,253 @@
                 await InvokeAsync(StateHasChanged);
             });
 
+            // Add WebRTC signaling handlers
+            _hubConnection.On<string, string>("ReceiveOffer", async (fromUserId, offer) =>
+            {
+                try
+                {
+                    var answer = await JS.InvokeAsync<string>("WebRTCInterop.handleOffer", fromUserId, UserId, offer);
+                    Console.WriteLine($"Send answer invoked from={fromUserId}, to {UserId}");
+                    await _hubConnection.InvokeAsync("SendAnswer", fromUserId, answer);
+                    Console.WriteLine($"Handled offer from {fromUserId}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error handling offer from {fromUserId}: {ex.Message}");
+                }
+            });
 
-            await _hubConnection.StartAsync();
+            _hubConnection.On<string, string>("ReceiveAnswer", async (fromUserId, answer) =>
+            {
+                try
+                {
+                    await JS.InvokeVoidAsync("WebRTCInterop.handleAnswer", fromUserId, UserId, answer);
+                    Console.WriteLine($"Handled answer from {fromUserId}, to {UserId}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error handling answer from {fromUserId}: {ex.Message}");
+                }
+            });
+
+            _hubConnection.On<string, string>("ReceiveIceCandidate", async (fromUserId, candidate) =>
+            {
+                try
+                {
+                    await JS.InvokeVoidAsync("WebRTCInterop.handleIceCandidate", fromUserId, UserId, candidate);
+                    Console.WriteLine($"Handled ICE candidate from {fromUserId}, to {UserId}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error handling ICE candidate from {fromUserId}: {ex.Message}");
+                }
+            });
+
+            try
+            {
+                Console.WriteLine($"Starting HubConnection for userId={UserId}");
+                await _hubConnection.StartAsync();
+                Console.WriteLine($"HubConnection started, state={_hubConnection.State}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error starting HubConnection: {ex.Message}");
+                return;
+            }
 
             if (_hubConnection.State == HubConnectionState.Connected)
             {
-                Console.WriteLine("Calling JoinMeeting...");
+                Console.WriteLine($"Calling JoinMeeting with UserId: {UserId}, UserName: {UserName}, AvatarUrl: {AvatarUrl}");
                 await _hubConnection.InvokeAsync("JoinMeeting", RoomId, UserId, UserName, AvatarUrl);
+                
+                var currentUser = new UserConnectionInfo
+                    {
+                        UserId = UserId,
+                        UserName = UserName,
+                        AvatarUrl = AvatarUrl,
+                        ConnectionId = _hubConnection.ConnectionId ?? string.Empty,
+                        IsVideoEnabled = false,
+                        IsMicrophoneEnabled = false,
+                        HasActiveStream = false 
+                    };
+                if (!Users.Any(u => u.UserId == UserId))
+                {
+                    Console.WriteLine($"Adding current user: {UserName} to Users list (from OnAfterRenderAsync)");
+                    Users.Add(currentUser);
+                    await InvokeAsync(StateHasChanged);
+                    Console.WriteLine($"Users count after adding current user: {Users.Count}");
+                }
+
+                try
+                {
+                    await JS.InvokeVoidAsync("WebRTCInterop.init", UserId, dotNetRef);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error initializing WebRTC: {ex.Message}");
+                }
             }
             else
             {
                 Console.WriteLine($"Connection not ready. Current state: {_hubConnection.State}");
             }
         }
+        
+        if (_pendingLocalStreamUpdate && StreamActive)
+        {
+            try
+            {
+                // Check if video element exists and set stream
+                var videoElementId = $"video-{UserId}";
+                var streamSet = await JS.InvokeAsync<bool>("WebRTCInterop.setLocalStream", UserId, videoElementId);
+                if (!streamSet)
+                {
+                    Console.WriteLine($"Failed to set local stream for {videoElementId}");
+                }
+                _pendingLocalStreamUpdate = false;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error setting local stream: {ex.Message}");
+            }
+        }
     }
+
+    [JSInvokable]
+    public async Task SendOffer(string toUserId, string offer)
+    {
+        Console.WriteLine($"SendOffer invoked for toUserId={toUserId}");
+        await _hubConnection!.InvokeAsync("SendOffer", toUserId, offer);
+    }
+
+    [JSInvokable]
+    public async Task SendIceCandidate(string toUserId, string candidate)
+    {
+        Console.WriteLine($"SendIceCandidate invoked for toUserId={toUserId}");
+        await _hubConnection!.InvokeAsync("SendIceCandidate", toUserId, candidate);
+    }
+
+    [JSInvokable]
+    public async Task OnRemoteStream(string remoteUserId, string streamId)
+    {
+        var videoElementId = $"video-{remoteUserId}";
+        try
+        {
+            var videoElementExists = await JS.InvokeAsync<bool>("WebRTCInterop.elementExists", videoElementId);
+            if (videoElementExists)
+            {
+                await JS.InvokeVoidAsync("WebRTCInterop.setLocalStream", remoteUserId, videoElementId);
+                Console.WriteLine($"Set remote stream for {remoteUserId}");
+            }
+            else
+            {
+                Console.WriteLine($"Video element '{videoElementId}' not found in DOM");
+            }
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error setting remote stream for {remoteUserId}: {ex.Message}");
+        }
+    }
+
+    private bool _pendingLocalStreamUpdate = false;
 
     private async Task ToggleMic()
     {
         MicEnabled = !MicEnabled;
-        await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "microphone", MicEnabled, UserId)!;
+        StreamActive = VideoEnabled || MicEnabled;
+
+        Console.WriteLine($"ToggleMic: IsMicrophoneEnabled={MicEnabled}, StreamActive={StreamActive}");
+
+        if (StreamActive)
+        {
+            try
+            {
+                var mediaStarted = await JS.InvokeAsync<bool>("WebRTCInterop.startMedia", UserId, VideoEnabled, MicEnabled);
+                if (mediaStarted)
+                {
+                    var videoElementId = $"video-{UserId}";
+                    var streamSet = await JS.InvokeAsync<bool>("WebRTCInterop.setLocalStream", UserId, videoElementId);
+                    if (!streamSet)
+                    {
+                        Console.WriteLine($"Failed to set local stream for {videoElementId}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Local stream set for {videoElementId}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"Failed to start media for user {UserId}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in ToggleMic: {ex.Message}");
+            }
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("WebRTCInterop.stopMedia", UserId);
+        }
+
+        await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "microphone", MicEnabled, UserId);
+        await _hubConnection!.InvokeAsync("UpdateStatus", RoomId, "stream", StreamActive, UserId);
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task ToggleVideo()
     {
         VideoEnabled = !VideoEnabled;
-        await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "video", VideoEnabled, UserId)!;
+        StreamActive = VideoEnabled || MicEnabled;
+
+        Console.WriteLine($"ToggleVideo: IsVideoEnabled={VideoEnabled}, StreamActive={StreamActive}");
+
+        if (StreamActive)
+        {
+            try
+            {
+                var mediaStarted = await JS.InvokeAsync<bool>("WebRTCInterop.startMedia", UserId, VideoEnabled, MicEnabled);
+                if (mediaStarted)
+                {
+                    var videoElementId = $"video-{UserId}";
+                    var streamSet = await JS.InvokeAsync<bool>("WebRTCInterop.setLocalStream", UserId, videoElementId);
+                    if (!streamSet)
+                    {
+                        Console.WriteLine($"Failed to set local stream for {videoElementId}");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"Local stream set for {videoElementId}");
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"Failed to start media for user {UserId}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in ToggleVideo: {ex.Message}");
+            }
+        }
+        else
+        {
+            await JS.InvokeVoidAsync("WebRTCInterop.stopMedia", UserId);
+        }
+
+        await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "video", VideoEnabled, UserId);
+        await _hubConnection!.InvokeAsync("UpdateStatus", RoomId, "stream", StreamActive, UserId);
+        await InvokeAsync(StateHasChanged);
     }
 
     private async Task ExitMeeting()
     {
         try
         {
+            await JS.InvokeVoidAsync("WebRTCInterop.dispose", UserId);
             if (_hubConnection != null && _hubConnection.State == HubConnectionState.Connected && UserId != "error")
             {
                 await _hubConnection.InvokeAsync("LeaveMeeting", RoomId, UserId, UserName);
@@ -562,6 +758,17 @@
                 await _hubConnection.DisposeAsync();
                 _hubConnection = null;
             }
+
+            try
+            {
+                await JS.InvokeVoidAsync("WebRTCInterop.dispose", UserId);
+                await JS.InvokeVoidAsync("unregisterBeforeUnload");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error disposing WebRTC or unregistering: {ex.Message}");
+            }
+
             Users.Clear();
             Navigation.NavigateTo("/");
         }
@@ -585,8 +792,11 @@
 
     public async ValueTask DisposeAsync()
     {
-        await JS.InvokeVoidAsync("unregisterBeforeUnload");
-        dotNetRef?.Dispose();
+        if (dotNetRef != null)
+        {
+            dotNetRef.Dispose();
+            dotNetRef = null;
+        }
 
         if (_hubConnection != null)
         {
