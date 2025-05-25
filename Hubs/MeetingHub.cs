@@ -324,7 +324,7 @@ namespace ZOOM_RIPOFF.Hubs
                 // Console.WriteLine($"Cleaned up private chat: {key}");
             }
         }
-
+        
         public async Task SendOffer(string toUserId, string offer)
         {
             var connectionId = Context.ConnectionId;

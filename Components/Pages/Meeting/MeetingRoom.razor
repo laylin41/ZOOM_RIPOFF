@@ -217,6 +217,13 @@
         font-size: 1.2rem;
     }
 
+    .participant-video {
+        width: 80px;
+        height: 80px;
+        object-fit: cover;
+        border-radius: 50%;
+    }
+
     @@media (max-width: 768px) {
         .participant-tile .avatar {
             width: 60px;
@@ -263,6 +270,8 @@
     private bool CanSendFile = true;
 
     private bool showChats = false;
+
+    private IJSObjectReference? webrtcModule;
 
     private void ToggleChat()
     {
@@ -334,6 +343,7 @@
 
         if (firstRender)
         {
+            webrtcModule = await JS.InvokeAsync<IJSObjectReference>("import", "./js/webrtc.js");
             dotNetRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("registerBeforeUnload", dotNetRef);
 
@@ -744,6 +754,21 @@
         await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "video", VideoEnabled, UserId);
         await _hubConnection!.InvokeAsync("UpdateStatus", RoomId, "stream", StreamActive, UserId);
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task UpdateMedia()
+    {
+        
+        if (VideoEnabled || MicEnabled)
+        {
+            Console.WriteLine($"Update media called, Video:{VideoEnabled}, Mic:{MicEnabled}");
+            await JS.InvokeAsync<bool>("startMedia", "localVideo", VideoEnabled, MicEnabled);
+        }
+        else
+        {
+            Console.WriteLine($"Stopping media, Video:{VideoEnabled}, Mic:{MicEnabled}");
+            await JS.InvokeVoidAsync("stopMedia");
+        }
     }
 
     private async Task ExitMeeting()
