@@ -186,7 +186,7 @@ namespace ZOOM_RIPOFF.Hubs
                     else if (statusType == "stream")
                         user.HasActiveStream = isEnabled;
 
-                    await Clients.Group(roomId).SendAsync("UserStatusChanged", connectionId, statusType, isEnabled);
+                    await Clients.Group(roomId).SendAsync("UserStatusChanged", user.UserId, connectionId, statusType, isEnabled);
                 }
             }
         }

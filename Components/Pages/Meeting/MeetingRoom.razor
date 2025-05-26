@@ -29,18 +29,18 @@
         {
             <div class="d-flex">
                 <!-- Participants Section -->
-                <div class="p-3 bg-white shadow-sm" style="width: 300px; overflow-y: auto;">
+                <div class="p-3 bg-white shadow-sm" style="width: 1000px; overflow-y: auto;">
                     <h5 class="fw-bold mb-3 text-primary">Учасники (@Users.Count)</h5>
                     <div class="participant-grid">
                         @foreach (var user in Users)
                         {
                             <div class="card participant-tile shadow-sm border-0">
                                 <div class="card-body p-2 text-center">
-                                    @if (user.UserId == UserId && StreamActive && VideoEnabled)
+                                    @if (user.UserId == UserId && StreamActive)
                                     {
                                         <video id="video-$@user.UserId" class="avatar rounded mb-2" autoplay oncanplay="this.muted=true" playsinline></video>
                                     }
-                                    else if (user.UserId != UserId && user.HasActiveStream && user.IsVideoEnabled)
+                                    else if (user.UserId != UserId && user.HasActiveStream)
                                     {
                                         <video id="video-$@user.UserId" class="avatar rounded mb-2" autoplay playsinline></video>
                                     }
@@ -62,7 +62,9 @@
                         }
                     </div>
                 </div>
+            </div>
 
+            <div>
                 <!-- Chat -->
                 @if (showChats)
                 {
@@ -149,22 +151,21 @@
                         </div>
                     </div>
                 }
-            </div>
-            
-            <!-- Controls -->
-            <div class="m-2 d-flex justify-content-center gap-3" style="bottom:auto">
-                <button class="btn btn-outline-primary btn-icon" @onclick="ToggleMic" title="@(MicEnabled ? "Вимкнути мікрофон" : "Увімкнути мікрофон")">
-                    <i class="bi @(MicEnabled ? "bi-mic-fill" : "bi-mic-mute-fill")"></i>
-                </button>
-                <button class="btn btn-outline-primary btn-icon" @onclick="ToggleVideo" title="@(VideoEnabled ? "Вимкнути відео" : "Увімкнути відео")">
-                    <i class="bi @(VideoEnabled ? "bi-camera-video-fill" : "bi-camera-video-off-fill")"></i>
-                </button>
-                <button class="btn btn-outline-primary btn-icon" @onclick="ToggleChat" title="@(showChats ? "Відкрити чат" : "Закрити чат")">
-                    <i class="bi @(showChats ? "bi-chat-left" : "bi-chat-left-text")"></i>
-                </button>
-                <button class="btn btn-danger" @onclick="ExitMeeting">
-                    <i class="bi bi-box-arrow-right"></i> Вийти
-                </button>
+                <!-- Controls -->
+                <div class="m-3 d-flex justify-content-center gap-3" style="bottom:auto">
+                    <button class="btn btn-outline-primary btn-icon" @onclick="ToggleMic" title="@(MicEnabled ? "Вимкнути мікрофон" : "Увімкнути мікрофон")">
+                        <i class="bi @(MicEnabled ? "bi-mic-fill" : "bi-mic-mute-fill")"></i>
+                    </button>
+                    <button class="btn btn-outline-primary btn-icon" @onclick="ToggleVideo" title="@(VideoEnabled ? "Вимкнути відео" : "Увімкнути відео")">
+                        <i class="bi @(VideoEnabled ? "bi-camera-video-fill" : "bi-camera-video-off-fill")"></i>
+                    </button>
+                    <button class="btn btn-outline-primary btn-icon" @onclick="ToggleChat" title="@(showChats ? "Відкрити чат" : "Закрити чат")">
+                        <i class="bi @(showChats ? "bi-chat-left" : "bi-chat-left-text")"></i>
+                    </button>
+                    <button class="btn btn-danger" @onclick="ExitMeeting">
+                        <i class="bi bi-box-arrow-right"></i> Вийти
+                    </button>
+                </div>
             </div>
         }
     }
@@ -184,16 +185,16 @@
     }
 
     .avatar {
-        width: 120px;
-        height: 120px;
+        width: 100px;
+        height: 100px;
         object-fit: cover;
     }
 
     .chat-container {
         display: flex;
         flex-direction: column;
-        min-height: 0;
-        height: 100%;
+        min-height: 400px;
+        max-height: 400px;
     }
 
     .chat-box {
@@ -435,9 +436,9 @@
                 Console.WriteLine($"Users count after CurrentUsers: {Users.Count}");
             });
 
-            _hubConnection.On<string, string, bool>("UserStatusChanged", async (connId, type, isEnabled) =>
+            _hubConnection.On<string, string, string, bool>("UserStatusChanged", async (userId, connId, type, isEnabled) =>
             {
-                var user = Users.FirstOrDefault(u => u.ConnectionId == connId);
+                var user = Users.FirstOrDefault(u => u.UserId == userId);
                 if (user != null && user.UserId != UserId)
                 {
                     Console.WriteLine($"UserStatusChanged: {user.UserName}, {type}={isEnabled}");
@@ -472,6 +473,8 @@
                             user.HasActiveStream = isEnabled;
                         }
                     }
+
+                    await InvokeAsync(StateHasChanged);
                 }
             });
 
