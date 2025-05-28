@@ -7,9 +7,19 @@
 @rendermode InteractiveServer
 @implements IDisposable
 
-<div class="container-fluid vh-100 d-flex flex-column">
-    @if (meeting != null)
-    {
+@if (isRoomFull)
+{
+    <div class="container-fluid vh-100 d-flex flex-column justify-content-center align-items-center">
+        <div class="alert alert-danger text-center" role="alert">
+            <h4 class="alert-heading">Кімната заповнена</h4>
+            <p>Зустріч досягла максимальної кількості учасників. Спробуйте ще раз пізніше.</p>
+            <button class="btn btn-primary" @onclick='() => Navigation.NavigateTo("/")'>Повернутися на головну</button>
+        </div>
+    </div>
+}
+else if (meeting != null)
+{
+    <div class="container-fluid vh-100 d-flex flex-column">
         <!-- Header -->
         <div class="p-3 bg-primary text-white shadow-sm d-flex justify-content-between align-items-center">
             <h3 class="mb-0">
@@ -168,8 +178,17 @@
                 </div>
             </div>
         }
-    }
-</div>
+    </div>
+}
+else
+{
+    <div class="container-fluid vh-100 d-flex justify-content-center align-items-center">
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+}
+
 
 <style>
     .vh-100 {
@@ -271,6 +290,8 @@
     private bool CanSendFile = true;
 
     private bool showChats = false;
+
+    private bool isRoomFull = false;
 
     private void ToggleChat()
     {
@@ -387,7 +408,8 @@
                 catch (Exception ex)
                 {
                     Console.WriteLine($"[${UserId}] Error on reconnection: {ex.Message}");
-
+                    isRoomFull = true;
+                    await InvokeAsync(StateHasChanged);
                 }
             };
 
@@ -413,6 +435,14 @@
                     Console.WriteLine($"Removed userId={user.UserId} from DisconnectedButWithChatUsers");
                     await InvokeAsync(StateHasChanged);
                 }
+            });
+
+            _hubConnection.On<string>("RoomFull", async (message) =>
+            {
+                isRoomFull = true;
+                Console.WriteLine($"Room full: {message}");
+                await _hubConnection.StopAsync();
+                await InvokeAsync(StateHasChanged);
             });
 
             _hubConnection.On<List<UserConnectionInfo>>("CurrentUsers", async (users) =>
@@ -588,7 +618,7 @@
                 await JS.InvokeVoidAsync("registerBeforeUnload", dotNetRef);
                 await _hubConnection.StartAsync();
                 Console.WriteLine($"[${UserId}] HubConnection started, state={_hubConnection.State}");
-                await _hubConnection.InvokeAsync("JoinMeeting", RoomId, UserId, UserName, AvatarUrl);
+                await _hubConnection.InvokeAsync("JoinMeeting", RoomId, UserId, UserName, AvatarUrl); //
                 Console.WriteLine($"[${UserId}] Called JoinMeeting with UserId: {UserId}, UserName: {UserName}, AvatarUrl: {AvatarUrl}");
                 var currentUser = new UserConnectionInfo
                     {

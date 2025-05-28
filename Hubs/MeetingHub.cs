@@ -13,6 +13,7 @@ namespace ZOOM_RIPOFF.Hubs
         // Зберігаємо повідомлення чату по кімнатах
         private static readonly ConcurrentDictionary<string, List<ChatMessage>> ChatMessages = new();
         private static readonly ConcurrentDictionary<string, List<ChatMessage>> PrivateChats = new();
+        private const int MaxParticipants = 30;
 
         public async Task JoinMeeting(string roomId, string userId, string userName, string avatarUrl)
         {
@@ -28,6 +29,15 @@ namespace ZOOM_RIPOFF.Hubs
                 Console.WriteLine($"Valid join attempt: userId={userId}, userName={userName}, connectionId ={connectionId}");
             }
             //Console.WriteLine($"JoinedMeeting for id: {userId}, conId:{connectionId}");
+
+            // Check participant limit outside of lock
+            var roomUsers = RoomUsers.GetOrAdd(roomId, _ => new List<UserConnectionInfo>());
+            if (roomUsers.Count >= MaxParticipants)
+            {
+                Console.WriteLine($"Room {roomId} is full (limit={MaxParticipants}). Rejecting userId={userId}");
+                await Clients.Caller.SendAsync("RoomFull", "Зустріч досягла максимальної кількості учасників (30).");
+                return;
+            }
 
             var user = new UserConnectionInfo
             {
