@@ -195,6 +195,8 @@ namespace ZOOM_RIPOFF.Hubs
                         user.IsMicrophoneEnabled = isEnabled;
                     else if (statusType == "stream")
                         user.HasActiveStream = isEnabled;
+                    else if (statusType == "screen")
+                        user.IsScreenShareEnabled = isEnabled;
 
                     await Clients.Group(roomId).SendAsync("UserStatusChanged", user.UserId, connectionId, statusType, isEnabled);
                 }

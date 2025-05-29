@@ -9,5 +9,6 @@
         public bool IsMicrophoneEnabled { get; set; } = false;
         public string AvatarUrl { get; set; } = "/avatars/default.png";
         public bool HasActiveStream { get; set; } // Indicates if the user has an active media stream
+        public bool IsScreenShareEnabled { get; set; }
     }
 }

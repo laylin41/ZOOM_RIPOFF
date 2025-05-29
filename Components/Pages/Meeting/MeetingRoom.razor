@@ -73,8 +73,20 @@ else if (meeting != null)
                     </div>
                 </div>
             </div>
-
-            <div>
+                <!-- Screen Share Section -->
+                <div class="p-3 bg-white shadow-sm" style="flex-grow: 1;">
+                    <h5 class="fw-bold mb-3 text-primary">Трансляція екрану</h5>
+                    @foreach (var user in Users.Where(u => u.IsScreenShareEnabled))
+                    {
+                        <div class="card shadow-sm border-0 mb-3">
+                            <div class="card-body p-2">
+                                <h6>@user.UserName</h6>
+                                <video id="screen-$@user.UserId" class="screen-share-video" autoplay playsinline></video>
+                            </div>
+                        </div>
+                    }
+                </div>
+                <div>
                 <!-- Chat -->
                 @if (showChats)
                 {
@@ -169,6 +181,9 @@ else if (meeting != null)
                     <button class="btn btn-outline-primary btn-icon" @onclick="ToggleVideo" title="@(VideoEnabled ? "Вимкнути відео" : "Увімкнути відео")">
                         <i class="bi @(VideoEnabled ? "bi-camera-video-fill" : "bi-camera-video-off-fill")"></i>
                     </button>
+                    <button class="btn btn-outline-primary btn-icon" @onclick="ToggleScreenShare" title="@(ScreenShareEnabled ? "Вимкнути трансляцію екрану" : "Увімкнути трансляцію екрану")">
+                        <i class="bi @(ScreenShareEnabled ? "bi-display-fill" : "bi-display")"></i>
+                    </button>
                     <button class="btn btn-outline-primary btn-icon" @onclick="ToggleChat" title="@(showChats ? "Відкрити чат" : "Закрити чат")">
                         <i class="bi @(showChats ? "bi-chat-left" : "bi-chat-left-text")"></i>
                     </button>
@@ -244,6 +259,13 @@ else
         border-radius: 50%;
     }
 
+    .screen-share-video {
+        width: 100%;
+        max-height: 400px;
+        object-fit: contain;
+        border-radius: 8px;
+    }
+
     @@media (max-width: 768px) {
         .participant-tile .avatar {
             width: 60px;
@@ -279,6 +301,7 @@ else
     private bool MicEnabled = false;
     private bool VideoEnabled = false;
     private bool StreamActive = false;
+    private bool ScreenShareEnabled = false;
 
     private string ChatMessage = "";
     private string SelectedPrivateUserId = "";
@@ -474,6 +497,7 @@ else
                     Console.WriteLine($"UserStatusChanged: {user.UserName}, {type}={isEnabled}");
                     if (type == "video") user.IsVideoEnabled = isEnabled;
                     if (type == "microphone") user.IsMicrophoneEnabled = isEnabled;
+                    if (type == "stream") user.IsScreenShareEnabled = isEnabled;
                     if (type == "stream") user.HasActiveStream = isEnabled;
 
                     if (type != "stream" && StreamActive && isEnabled)
@@ -681,7 +705,10 @@ else
     [JSInvokable]
     public async Task OnRemoteStream(string remoteUserId, string streamId)
     {
-        var videoElementId = $"video-${remoteUserId}";
+        // var videoElementId = $"video-${remoteUserId}";
+        var videoElementId = Users.FirstOrDefault(u => u.UserId == remoteUserId)?.IsScreenShareEnabled == true
+            ? $"screen-${remoteUserId}"
+            : $"video-${remoteUserId}";
         try
         {
             await InvokeAsync(StateHasChanged); // Ensure DOM is updated
@@ -797,6 +824,67 @@ else
             StreamActive = MicEnabled;
         }
         await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ToggleScreenShare()
+    {
+        ScreenShareEnabled = !ScreenShareEnabled;
+        StreamActive = VideoEnabled || MicEnabled || ScreenShareEnabled;
+
+        Console.WriteLine($"ToggleScreenShare: IsScreenShareEnabled={ScreenShareEnabled}, StreamActive={StreamActive}");
+
+        try
+        {
+            if (ScreenShareEnabled)
+            {
+                var mediaStarted = await JS.InvokeAsync<bool>("WebRTCInterop.startScreenShare", UserId);
+                if (mediaStarted)
+                {   
+                    var videoElementId = $"screen-${UserId}";
+                    await InvokeAsync(StateHasChanged);
+                    var streamSet = await JS.InvokeAsync<bool>("WebRTCInterop.setLocalStream", UserId, videoElementId);
+                    if (!streamSet)
+                    {
+                        Console.WriteLine($"Failed to set screen share stream for {videoElementId}");
+                        ScreenShareEnabled = false;
+                        StreamActive = VideoEnabled || MicEnabled;
+                    }
+                    else
+                    {
+                        // Ініціюємо WebRTC offer для всіх учасників
+                        foreach (var user in Users.Where(u => u.UserId != UserId && (u.IsVideoEnabled || u.IsMicrophoneEnabled || u.IsScreenShareEnabled)))
+                        {
+                            await JS.InvokeVoidAsync("WebRTCInterop.startOffer", user.UserId, UserId);
+                        }
+                    }
+                }
+                else
+                {
+                    Console.WriteLine($"Failed to start screen share for user {UserId}");
+                    ScreenShareEnabled = false;
+                    StreamActive = VideoEnabled || MicEnabled;
+                }
+            }
+            else
+            {
+                await JS.InvokeVoidAsync("WebRTCInterop.stopScreenShare", UserId);
+                foreach (var user in Users.Where(u => u.UserId != UserId))
+                {
+                    await JS.InvokeVoidAsync("WebRTCInterop.closePeerConnection", UserId, user.UserId);
+                    await JS.InvokeVoidAsync("WebRTCInterop.startOffer", user.UserId, UserId);
+                }
+            }
+
+            await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "screen", ScreenShareEnabled, UserId);
+            await _hubConnection?.InvokeAsync("UpdateStatus", RoomId, "stream", StreamActive, UserId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error in ToggleScreenShare: {ex.Message}");
+            ScreenShareEnabled = false;
+            StreamActive = VideoEnabled || MicEnabled;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private async Task ExitMeeting()
