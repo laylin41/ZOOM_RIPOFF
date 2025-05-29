@@ -83,7 +83,7 @@ else if (meeting != null)
                             <div class="card shadow-sm border-0 mb-3">
                                 <div class="card-body p-2">
                                     <h6>@user.UserName</h6>
-                                    <video id="screen-@user.UserId" class="screen-share-video" autoplay playsinline=@(user.UserId == UserId ? "muted" : "" )></video>
+                                    <video id="screen-@user.UserId" class="screen-share-video" autoplay playsinline="@(user.UserId == UserId ? "muted" : "" )"></video>
                                 </div>
                             </div>
                         }
