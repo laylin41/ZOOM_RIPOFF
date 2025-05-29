@@ -338,7 +338,7 @@ namespace ZOOM_RIPOFF.Hubs
             }
         }
         
-        public async Task SendOffer(string toUserId, string offer)
+        public async Task SendOffer(string toUserId, string offer, bool isScreenShare)
         {
             var connectionId = Context.ConnectionId;
             var roomId = GetRoomId();
@@ -364,7 +364,7 @@ namespace ZOOM_RIPOFF.Hubs
             var toUser = users.FirstOrDefault(u => u.UserId == toUserId);
             if (toUser != null)
             {
-                await Clients.Client(toUser.ConnectionId).SendAsync("ReceiveOffer", fromUser.UserId, offer);
+                await Clients.Client(toUser.ConnectionId).SendAsync("ReceiveOffer", fromUser.UserId, offer, isScreenShare);
                 Console.WriteLine($"Sent offer from userId={fromUser.UserId} to userId={toUserId} in room={roomId}");
             }
             else
@@ -373,7 +373,7 @@ namespace ZOOM_RIPOFF.Hubs
             }
         }
 
-        public async Task SendAnswer(string toUserId, string answer)
+        public async Task SendAnswer(string toUserId, string answer, bool isScreenShare)
         {
             var connectionId = Context.ConnectionId;
             var roomId = GetRoomId();
@@ -399,7 +399,7 @@ namespace ZOOM_RIPOFF.Hubs
             var toUser = users.FirstOrDefault(u => u.UserId == toUserId);
             if (toUser != null)
             {
-                await Clients.Client(toUser.ConnectionId).SendAsync("ReceiveAnswer", fromUser.UserId, answer);
+                await Clients.Client(toUser.ConnectionId).SendAsync("ReceiveAnswer", fromUser.UserId, answer, isScreenShare);
                 Console.WriteLine($"Sent answer from userId={fromUser.UserId} to userId={toUserId} in room={roomId}");
             }
             else
@@ -408,7 +408,7 @@ namespace ZOOM_RIPOFF.Hubs
             }
         }
 
-        public async Task SendIceCandidate(string toUserId, string candidate)
+        public async Task SendIceCandidate(string toUserId, string candidate, bool isScreenShare)
         {
             var connectionId = Context.ConnectionId;
             var roomId = GetRoomId();
@@ -434,7 +434,7 @@ namespace ZOOM_RIPOFF.Hubs
             var toUser = users.FirstOrDefault(u => u.UserId == toUserId);
             if (toUser != null)
             {
-                await Clients.Client(toUser.ConnectionId).SendAsync("ReceiveIceCandidate", fromUser.UserId, candidate);
+                await Clients.Client(toUser.ConnectionId).SendAsync("ReceiveIceCandidate", fromUser.UserId, candidate, isScreenShare);
                 Console.WriteLine($"Sent ICE candidate from userId={fromUser.UserId} to userId={toUserId} in room={roomId}");
             }
             else

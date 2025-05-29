@@ -1,23 +1,23 @@
 ﻿window.WebRTCInterop = {
     localStreams: {},
-    screenStreams: {}, // Зберігання потоку екрану
+    screenStreams: {},
     remoteStreams: {},
     peerConnections: {},
+    screenPeerConnections: {}, // Додано для трансляції екрану
     dotNetObjects: {},
     iceCandidateBuffers: {},
 
-    // Initialize WebRTC
     init: function (userId, dotNetObject) {
         this.dotNetObjects[userId] = dotNetObject;
         this.peerConnections[userId] = {};
+        this.screenPeerConnections[userId] = {}; // Ініціалізація для екрану
         this.localStreams[userId] = null;
-        this.screenStreams[userId] = null; // Ініціалізація для екрану
+        this.screenStreams[userId] = null;
         this.remoteStreams[userId] = {};
         this.iceCandidateBuffers[userId] = {};
         console.log(`WebRTCInterop initialized for user ${userId}`);
     },
 
-    // Start media stream
     startMedia: async function (userId, videoEnabled, audioEnabled) {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
@@ -33,12 +33,11 @@
         }
     },
 
-    // Start screen share
     startScreenShare: async function (userId) {
         try {
             const stream = await navigator.mediaDevices.getDisplayMedia({
                 video: true,
-                audio: true // Захоплення аудіо залежить від браузера/ОС
+                audio: true
             });
             this.screenStreams[userId] = stream;
             console.log(`Screen share stream initialized for user ${userId}: ${stream.id}`);
@@ -55,93 +54,105 @@
         }
     },
 
-    // Stop screen share
     stopScreenShare: function (userId) {
         if (this.screenStreams[userId]) {
             this.screenStreams[userId].getTracks().forEach(track => track.stop());
             this.screenStreams[userId] = null;
             console.log(`Stopped screen share for user ${userId}`);
+            // Закриваємо всі screenPeerConnections
+            if (this.screenPeerConnections[userId]) {
+                Object.keys(this.screenPeerConnections[userId]).forEach(toUserId => {
+                    this.screenPeerConnections[userId][toUserId].close();
+                    delete this.screenPeerConnections[userId][toUserId];
+                });
+            }
         }
     },
 
-    // Set local stream to video element
+    stopMedia: function (userId) {
+        if (this.localStreams[userId]) {
+            this.localStreams[userId].getTracks().forEach(track => track.stop());
+            this.localStreams[userId] = null;
+            console.log(`Stopped media for user ${userId}`);
+        }
+    },
+
     setLocalStream: async function (userId, videoElementId) {
         const videoElement = document.getElementById(videoElementId);
-        const stream = this.screenStreams[userId] || this.localStreams[userId];
+        const isScreenShare = videoElementId.startsWith('screen-');
+        const stream = isScreenShare ? this.screenStreams[userId] : this.localStreams[userId];
         if (videoElement && stream) {
             videoElement.srcObject = stream;
             await videoElement.play().catch(error => console.error(`Error playing video for ${videoElementId}: ${error}`));
-            console.log(`Set local stream for ${videoElementId}`);
+            console.log(`Set ${isScreenShare ? 'screen' : 'local'} stream for ${videoElementId}`);
             return true;
         }
-        console.warn(`Video element ${videoElementId} not found or no stream for user ${userId}`);
+        console.warn(`Video element ${videoElementId} not found or no ${isScreenShare ? 'screen' : 'local'} stream for user ${userId}`);
         return false;
     },
 
-    // Set remote stream to video element
     setRemoteStream: async function (toUserId, fromUserId, videoElementId) {
         const videoElement = document.getElementById(videoElementId);
-        if (videoElement && this.remoteStreams[toUserId]?.[fromUserId]) {
-            videoElement.srcObject = this.remoteStreams[toUserId][fromUserId];
+        const isScreenShare = videoElementId.startsWith('screen-');
+        const streamKey = isScreenShare ? `${fromUserId}-screen` : fromUserId;
+        if (videoElement && this.remoteStreams[toUserId]?.[streamKey]) {
+            videoElement.srcObject = this.remoteStreams[toUserId][streamKey];
             await videoElement.play().catch(error => console.error(`Error playing video for ${videoElementId}: ${error}`));
-            console.log(`Set remote stream from ${fromUserId} for ${videoElementId}`);
+            console.log(`Set remote ${isScreenShare ? 'screen' : 'camera'} stream from ${fromUserId} for ${videoElementId}`);
             return true;
         }
         console.warn(`Video element ${videoElementId} not found or no remote stream from ${fromUserId} for user ${toUserId}`);
         return false;
     },
 
-    // Check if video element exists
     elementExists: function (elementId) {
         return !!document.getElementById(elementId);
     },
 
-    // Create a peer connection
-    createPeerConnection: function (fromUserId, remoteUserId) {
-        console.log(`Creating peer connection from ${fromUserId} to ${remoteUserId}`);
+    createPeerConnection: function (fromUserId, remoteUserId, isScreenShare = false) {
+        console.log(`Creating peer connection from ${fromUserId} to ${remoteUserId} (screen: ${isScreenShare})`);
         const pc = new RTCPeerConnection({
             iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
         });
 
-        if (!this.peerConnections[fromUserId]) {
-            this.peerConnections[fromUserId] = {};
+        const connections = isScreenShare ? this.screenPeerConnections : this.peerConnections;
+        if (!connections[fromUserId]) {
+            connections[fromUserId] = {};
         }
         if (!this.iceCandidateBuffers[fromUserId]) {
             this.iceCandidateBuffers[fromUserId] = {};
         }
-        this.peerConnections[fromUserId][remoteUserId] = pc;
+        connections[fromUserId][remoteUserId] = pc;
         this.iceCandidateBuffers[fromUserId][remoteUserId] = [];
 
-        const stream = this.screenStreams[fromUserId] || this.localStreams[fromUserId];
+        const stream = isScreenShare ? this.screenStreams[fromUserId] : this.localStreams[fromUserId];
         if (stream) {
             stream.getTracks().forEach(track => {
                 pc.addTrack(track, stream);
             });
         }
 
-        // Handle remote stream
         pc.ontrack = (event) => {
             const stream = event.streams[0];
-            console.log(`ontrack fired for ${fromUserId} from ${remoteUserId}: ${stream.id}`);
+            console.log(`ontrack fired for ${fromUserId} from ${remoteUserId}: ${stream.id} (screen: ${isScreenShare})`);
             if (!this.remoteStreams[fromUserId]) {
                 this.remoteStreams[fromUserId] = {};
             }
-            this.remoteStreams[fromUserId][remoteUserId] = stream;
+            this.remoteStreams[fromUserId][isScreenShare ? `${remoteUserId}-screen` : remoteUserId] = stream;
             const dotNetObject = this.dotNetObjects[fromUserId];
             if (dotNetObject) {
-                dotNetObject.invokeMethodAsync('OnRemoteStream', remoteUserId, stream.id)
+                dotNetObject.invokeMethodAsync('OnRemoteStream', remoteUserId, stream.id, isScreenShare)
                     .catch(error => console.error(`Error invoking OnRemoteStream for ${remoteUserId}: ${error}`));
             }
         };
 
-        // Handle ICE candidates
         pc.onicecandidate = (event) => {
             if (event.candidate) {
-                console.log(`Generated ICE candidate for ${remoteUserId} from ${fromUserId}`);
+                console.log(`Generated ICE candidate for ${remoteUserId} from ${fromUserId} (screen: ${isScreenShare})`);
                 if (pc.remoteDescription) {
                     const dotNetObject = this.dotNetObjects[fromUserId];
                     if (dotNetObject) {
-                        dotNetObject.invokeMethodAsync('SendIceCandidate', remoteUserId, JSON.stringify(event.candidate))
+                        dotNetObject.invokeMethodAsync('SendIceCandidate', remoteUserId, JSON.stringify(event.candidate), isScreenShare)
                             .catch(error => console.error(`Error sending ICE candidate for ${remoteUserId}: ${error}`));
                     }
                 } else {
@@ -154,13 +165,14 @@
         return pc;
     },
 
-    applyBufferedIceCandidates: async function (fromUserId, toUserId) {
-        const pc = this.peerConnections[fromUserId]?.[toUserId];
+    applyBufferedIceCandidates: async function (fromUserId, toUserId, isScreenShare = false) {
+        const connections = isScreenShare ? this.screenPeerConnections : this.peerConnections;
+        const pc = connections[fromUserId]?.[toUserId];
         const buffer = this.iceCandidateBuffers[fromUserId]?.[toUserId] || [];
         for (const candidate of buffer) {
             try {
                 await pc.addIceCandidate(new RTCIceCandidate(candidate));
-                console.log(`Applied buffered ICE candidate for ${toUserId}`);
+                console.log(`Applied buffered ICE candidate for ${toUserId} (screen: ${isScreenShare})`);
             } catch (error) {
                 console.error(`Error applying buffered ICE candidate for ${toUserId}: ${error}`);
             }
@@ -168,22 +180,22 @@
         this.iceCandidateBuffers[fromUserId][toUserId] = [];
     },
 
-    // Handle incoming offer
-    handleOffer: async function (fromUserId, toUserId, offer) {
-        console.log(`Handling offer from ${fromUserId} to ${toUserId}`);
-        if (!this.peerConnections[toUserId]) {
-            this.peerConnections[toUserId] = {};
+    handleOffer: async function (fromUserId, toUserId, offer, isScreenShare = false) {
+        console.log(`Handling offer from ${fromUserId} to ${toUserId} (screen: ${isScreenShare})`);
+        const connections = isScreenShare ? this.screenPeerConnections : this.peerConnections;
+        if (!connections[toUserId]) {
+            connections[toUserId] = {};
         }
-        if (!this.peerConnections[toUserId][fromUserId]) {
-            this.createPeerConnection(toUserId, fromUserId);
+        if (!connections[toUserId][fromUserId]) {
+            this.createPeerConnection(toUserId, fromUserId, isScreenShare);
         }
-        const pc = this.peerConnections[toUserId][fromUserId];
+        const pc = connections[toUserId][fromUserId];
         try {
             await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(offer)));
-            await this.applyBufferedIceCandidates(toUserId, fromUserId);
+            await this.applyBufferedIceCandidates(toUserId, fromUserId, isScreenShare);
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
-            console.log(`Created answer for ${fromUserId}`);
+            console.log(`Created answer for ${fromUserId} (screen: ${isScreenShare})`);
             return JSON.stringify(answer);
         } catch (error) {
             console.error(`Error handling offer from ${fromUserId}: ${error}`);
@@ -191,32 +203,32 @@
         }
     },
 
-    // Handle incoming answer
-    handleAnswer: async function (fromUserId, toUserId, answer) {
-        console.log(`Handling answer from ${fromUserId} to ${toUserId}`);
-        const pc = this.peerConnections[toUserId]?.[fromUserId];
+    handleAnswer: async function (fromUserId, toUserId, answer, isScreenShare = false) {
+        console.log(`Handling answer from ${fromUserId} to ${toUserId} (screen: ${isScreenShare})`);
+        const connections = isScreenShare ? this.screenPeerConnections : this.peerConnections;
+        const pc = connections[toUserId]?.[fromUserId];
         if (pc) {
             try {
                 await pc.setRemoteDescription(new RTCSessionDescription(JSON.parse(answer)));
-                await this.applyBufferedIceCandidates(toUserId, fromUserId);
-                console.log(`Applied answer from ${fromUserId}`);
+                await this.applyBufferedIceCandidates(toUserId, fromUserId, isScreenShare);
+                console.log(`Applied answer from ${fromUserId} (screen: ${isScreenShare})`);
             } catch (error) {
                 console.error(`Error handling answer from ${fromUserId}: ${error}`);
             }
         } else {
-            console.error(`No peer connection for ${fromUserId} to ${toUserId}`);
+            console.error(`No peer connection for ${fromUserId} to ${toUserId} (screen: ${isScreenShare})`);
         }
     },
 
-    // Handle incoming ICE candidate
-    handleIceCandidate: async function (fromUserId, toUserId, candidate) {
-        console.log(`Handling ICE candidate from ${fromUserId} to ${toUserId}`);
-        const pc = this.peerConnections[toUserId]?.[fromUserId];
+    handleIceCandidate: async function (fromUserId, toUserId, candidate, isScreenShare = false) {
+        console.log(`Handling ICE candidate from ${fromUserId} to ${toUserId} (screen: ${isScreenShare})`);
+        const connections = isScreenShare ? this.screenPeerConnections : this.peerConnections;
+        const pc = connections[toUserId]?.[fromUserId];
         if (pc) {
             try {
                 if (pc.remoteDescription) {
                     await pc.addIceCandidate(new RTCIceCandidate(JSON.parse(candidate)));
-                    console.log(`Applied ICE candidate from ${fromUserId}`);
+                    console.log(`Applied ICE candidate from ${fromUserId} (screen: ${isScreenShare})`);
                 } else {
                     if (!this.iceCandidateBuffers[toUserId]) {
                         this.iceCandidateBuffers[toUserId] = {};
@@ -225,24 +237,24 @@
                         this.iceCandidateBuffers[toUserId][fromUserId] = [];
                     }
                     this.iceCandidateBuffers[toUserId][fromUserId].push(JSON.parse(candidate));
-                    console.log(`Buffered ICE candidate from ${fromUserId}`);
+                    console.log(`Buffered ICE candidate from ${fromUserId} (screen: ${isScreenShare})`);
                 }
             } catch (error) {
                 console.error(`Error handling ICE candidate from ${fromUserId}: ${error}`);
             }
         } else {
-            console.error(`No peer connection for ${fromUserId} to ${toUserId}`);
+            console.error(`No peer connection for ${fromUserId} to ${toUserId} (screen: ${isScreenShare})`);
         }
     },
 
-    // Start offer for a remote user
-    startOffer: async function (remoteUserId, fromUserId) {
-        console.log(`[${fromUserId}] Starting offer to ${remoteUserId}`);
-        if (this.peerConnections[fromUserId]?.[remoteUserId]) {
+    startOffer: async function (remoteUserId, fromUserId, isScreenShare = false) {
+        console.log(`[${fromUserId}] Starting offer to ${remoteUserId} (screen: ${isScreenShare})`);
+        const connections = isScreenShare ? this.screenPeerConnections : this.peerConnections;
+        if (connections[fromUserId]?.[remoteUserId]) {
             console.log(`[${fromUserId}] Peer connection already exists for ${remoteUserId}, skipping creation`);
             return;
         }
-        const pc = this.createPeerConnection(fromUserId, remoteUserId);
+        const pc = this.createPeerConnection(fromUserId, remoteUserId, isScreenShare);
         if (!pc) {
             console.error(`[${fromUserId}] Failed to create peer connection for ${remoteUserId}`);
             return;
@@ -250,11 +262,11 @@
         try {
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
-            console.log(`[${fromUserId}] Created and set offer for ${remoteUserId}`);
+            console.log(`[${fromUserId}] Created and set offer for ${remoteUserId} (screen: ${isScreenShare})`);
             const dotNetObject = this.dotNetObjects[fromUserId];
             if (dotNetObject && typeof dotNetObject.invokeMethodAsync === 'function') {
-                await dotNetObject.invokeMethodAsync('SendOffer', remoteUserId, JSON.stringify(offer));
-                console.log(`[${fromUserId}] Sent offer to ${remoteUserId}`);
+                await dotNetObject.invokeMethodAsync('SendOffer', remoteUserId, JSON.stringify(offer), isScreenShare);
+                console.log(`[${fromUserId}] Sent offer to ${remoteUserId} (screen: ${isScreenShare})`);
             } else {
                 console.error(`[${fromUserId}] Invalid or missing dotNetObject for ${fromUserId}`);
             }
@@ -268,15 +280,20 @@
             this.localStreams[userId].getTracks().forEach(track => track.stop());
             this.localStreams[userId] = null;
             console.log(`Stopped media for user ${userId}`);
+            if (this.peerConnections[userId]) {
+                Object.keys(this.peerConnections[userId]).forEach(toUserId => {
+                    this.closePeerConnection(userId, toUserId, false);
+                });
+            }
         }
     },
 
-    // Close peer connection
-    closePeerConnection: function (fromUserId, toUserId) {
-        if (this.peerConnections[fromUserId]?.[toUserId]) {
-            this.peerConnections[fromUserId][toUserId].close();
-            delete this.peerConnections[fromUserId][toUserId];
-            console.log(`Closed peer connection for ${toUserId} from ${fromUserId}`);
+    closePeerConnection: function (fromUserId, toUserId, isScreenShare = false) {
+        const connections = isScreenShare ? this.screenPeerConnections : this.peerConnections;
+        if (connections[fromUserId]?.[toUserId]) {
+            connections[fromUserId][toUserId].close();
+            delete connections[fromUserId][toUserId];
+            console.log(`Closed peer connection for ${toUserId} from ${fromUserId} (screen: ${isScreenShare})`);
         }
     },
 
@@ -285,9 +302,15 @@
         this.stopScreenShare(userId);
         if (this.peerConnections[userId]) {
             Object.keys(this.peerConnections[userId]).forEach(toUserId => {
-                this.closePeerConnection(userId, toUserId);
+                this.closePeerConnection(userId, toUserId, false);
             });
             delete this.peerConnections[userId];
+        }
+        if (this.screenPeerConnections[userId]) {
+            Object.keys(this.screenPeerConnections[userId]).forEach(toUserId => {
+                this.closePeerConnection(userId, toUserId, true);
+            });
+            delete this.screenPeerConnections[userId];
         }
         if (this.remoteStreams[userId]) {
             delete this.remoteStreams[userId];
