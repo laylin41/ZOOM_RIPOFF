@@ -727,26 +727,58 @@ else
     [JSInvokable]
     public async Task OnRemoteStream(string remoteUserId, string streamId, bool isScreenShare = false)
     {
-        var videoElementId = isScreenShare ? $"screen-{remoteUserId}" : $"video-{remoteUserId}";
+        var user = Users.FirstOrDefault(u => u.UserId == remoteUserId);
+        if (user != null)
+        {
+            if (!isScreenShare)
+            {
+                user.HasActiveStream = true;
+            }
+            else
+            {
+                user.IsScreenShareEnabled = true;
+            }
+            await InvokeAsync(StateHasChanged); // Update visibility
+        }
+
+        var videoElementId = isScreenShare ? $"screen-{remoteUserId}" : $"video-${remoteUserId}";
         try
         {
             Console.WriteLine($"OnRemoteStream: remoteUserId={remoteUserId}, videoElementId={videoElementId}, streamId={streamId}, isScreenShare={isScreenShare}");
-            await InvokeAsync(StateHasChanged); // Оновлюємо DOM
-            var videoElementExists = await JS.InvokeAsync<bool>("WebRTCInterop.elementExists", videoElementId);
-            Console.WriteLine($"Video element {videoElementId} exists: {videoElementExists}");
+
+            // Retry mechanism to wait for the video element
+            bool videoElementExists = false;
+            int maxRetries = 100; // Maximum number of retries
+            int delayMs = 100;   // Delay between retries in milliseconds
+            for (int i = 0; i < maxRetries; i++)
+            {
+                await InvokeAsync(StateHasChanged); // Force DOM update
+                videoElementExists = await JS.InvokeAsync<bool>("WebRTCInterop.elementExists", videoElementId);
+                if (videoElementExists)
+                {
+                    Console.WriteLine($"Video element {videoElementId} found after {i + 1} attempts");
+                    break;
+                }
+                Console.WriteLine($"Video element {videoElementId} not found, retrying... ({i + 1}/{maxRetries})");
+                await Task.Delay(delayMs);
+            }
+
             if (videoElementExists)
             {
                 var streamSet = await JS.InvokeAsync<bool>("WebRTCInterop.setRemoteStream", UserId, remoteUserId, videoElementId);
-                if (!streamSet)
+                if (streamSet)
                 {
-                    Console.WriteLine($"[{UserId}] Failed to set remote stream for {videoElementId}");
+                    Console.WriteLine($"Successfully set remote stream for {videoElementId}");
+                }
+                else
+                {
+                    Console.WriteLine($"Failed to set remote stream for {videoElementId}");
                 }
             }
             else
             {
-                Console.WriteLine($"Video element {videoElementId} not found in DOM");
+                Console.WriteLine($"Video element {videoElementId} not found after {maxRetries} retries");
             }
-            await InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {
