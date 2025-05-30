@@ -5,7 +5,7 @@ namespace ZOOM_RIPOFF.Services.Interfaces
     public interface IMeetingService
     {
         Task<string> GenerateUniqueMeetingIdAsync();
-        Task<Meeting> CreateMeetingAsync(Meeting meeting);
+        Task<bool> CreateMeetingAsync(Meeting meeting);
         Task<bool> MeetingExistsAsync(string meetingId);
         Task<Meeting?> GetMeetingByIdAsync(string meetingId);
         Task DeleteMeetingAsync(string meetingId);

@@ -40,13 +40,21 @@ namespace ZOOM_RIPOFF.Services
             return result.ToString();
         }
 
-        public async Task<Meeting> CreateMeetingAsync(Meeting meeting)
+        public async Task<bool> CreateMeetingAsync(Meeting meeting)
         {
-            _context.Meetings.Add(meeting);
-            await _context.SaveChangesAsync();
+            var foundMeetingExist = await _context.Meetings
+                .FirstOrDefaultAsync(m => m.MeetingId == meeting.MeetingId);
 
-            return meeting;
+            if (foundMeetingExist == null)
+            {
+                _context.Meetings.Add(meeting);
+                await _context.SaveChangesAsync();
+                return true;
+            }
+
+            return false;
         }
+
         public async Task<bool> MeetingExistsAsync(string meetingId)
         {
             return await _context.Meetings.AnyAsync(m => m.MeetingId == meetingId);
@@ -89,7 +97,22 @@ namespace ZOOM_RIPOFF.Services
             {
                 var inMeetings = await _context.Meetings.AnyAsync(m => m.MeetingId == meetingId);
                 var inUsers = await _context.Users.AnyAsync(u => u.PersonalMeetingId == meetingId);
-                return inMeetings && inUsers;
+                if (inUsers)
+                {
+                    var userWithoutMeeting = await _context.Users.FirstOrDefaultAsync(u => u.PersonalMeetingId == meetingId);
+                    var meeting = new Meeting()
+                    {
+                        MeetingId = userWithoutMeeting.PersonalMeetingId,
+                        MeetingName = userWithoutMeeting.DisplayName + "'s personal meeting",
+                        IsActive = true,
+                        OwnerId = userWithoutMeeting.Id,
+                        ScheduledToStartAt = null,
+                        CreatedAt = DateTime.UtcNow
+                    };
+
+                    await CreateMeetingAsync(meeting);
+                }
+                return inMeetings || inUsers;
             }
             finally
             {

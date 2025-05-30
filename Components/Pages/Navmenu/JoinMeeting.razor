@@ -41,7 +41,7 @@
             return;
         }
 
-        if (await MeetingService.MeetingExistsAsync(MeetingId))
+        if (await MeetingService.CheckMeetingIdExists(MeetingId))
         {
             NavigationManager.NavigateTo($"/meeting/{MeetingId}");
         }
