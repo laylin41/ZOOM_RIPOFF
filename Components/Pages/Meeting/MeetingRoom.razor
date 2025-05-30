@@ -142,7 +142,17 @@ else if (meeting != null)
                                 @foreach (var msg in privateMessages)
                                 {
                                     <div class="chat-message mb-2">
-                                        <span class="fw-semibold">@msg.SenderName:</span> @msg.Content
+                                        <span class="fw-semibold">@msg.SenderName:</span> 
+                                        @if (msg.IsFile)
+                                        {
+                                            <a href="data:application/octet-stream;base64,@msg.FileContentBase64" download="@msg.FileName" class="text-primary">
+                                                <i class="bi bi-file-earmark-arrow-down me-1"></i>@msg.FileName
+                                            </a>
+                                        }
+                                        else
+                                        {
+                                            <span>@msg.Content</span>
+                                        }
                                     </div>
                                 }
                             }
@@ -350,6 +360,8 @@ else
             ToUserId = IsPrivate ? SelectedPrivateUserId : null,
             IsFile = true,
         };
+
+        Console.WriteLine("Sending file message: " + "from " + fileMessage.SenderId + " to " + fileMessage.ToUserId + "isFile: " + fileMessage.IsFile);
 
         await _hubConnection.InvokeAsync("SendFileMessage", RoomId, fileMessage);
 
@@ -586,10 +598,12 @@ else
 
             _hubConnection.On<ChatMessage>("ReceiveFileMessage", async (fileMsg) =>
             {
-                if (fileMsg.ToUserId != null && !string.IsNullOrEmpty(fileMsg.ToUserId))
+                if (!string.IsNullOrEmpty(fileMsg.ToUserId))
                 {
                     if (!PrivateChatHistories.ContainsKey(fileMsg.SenderId))
+                    {
                         PrivateChatHistories[fileMsg.SenderId] = new List<ChatMessage>();
+                    }
                     PrivateChatHistories[fileMsg.SenderId].Add(fileMsg);    
                 }
                 else
@@ -602,19 +616,19 @@ else
 
             // Add WebRTC signaling handlers
             _hubConnection.On<string, string, bool>("ReceiveOffer", async (fromUserId, offer, isScreenShare) =>
-{
-    try
-    {
-        var answer = await JS.InvokeAsync<string>("WebRTCInterop.handleOffer", fromUserId, UserId, offer, isScreenShare);
-        Console.WriteLine($"Send answer invoked from={fromUserId}, to {UserId}, isScreenShare={isScreenShare}");
-        await _hubConnection.InvokeAsync("SendAnswer", fromUserId, answer, isScreenShare);
-        Console.WriteLine($"Handled offer from {fromUserId}");
-    }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Error handling offer from {fromUserId}: {ex.Message}");
-    }
-});
+            {
+                try
+                {
+                    var answer = await JS.InvokeAsync<string>("WebRTCInterop.handleOffer", fromUserId, UserId, offer, isScreenShare);
+                    Console.WriteLine($"Send answer invoked from={fromUserId}, to {UserId}, isScreenShare={isScreenShare}");
+                    await _hubConnection.InvokeAsync("SendAnswer", fromUserId, answer, isScreenShare);
+                    Console.WriteLine($"Handled offer from {fromUserId}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error handling offer from {fromUserId}: {ex.Message}");
+                }
+            });
 
             _hubConnection.On<string, string, bool>("ReceiveAnswer", async (fromUserId, answer, isScreenShare) =>
             {
